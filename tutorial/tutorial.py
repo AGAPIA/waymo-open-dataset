@@ -5,8 +5,22 @@ import numpy as np
 import itertools
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import sys
 
-def test_torch_and_tensorflow(image_bytes = None):
+
+tf.enable_eager_execution()
+from waymo_open_dataset.utils import range_image_utils
+from waymo_open_dataset.utils import transform_utils
+from waymo_open_dataset.utils import  frame_utils
+from waymo_open_dataset import dataset_pb2 as open_dataset
+
+
+FILENAME = "/home/ciprian/Downloads/Waymo/segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord" #'frames'
+DEBUG_SEGMENTATION_ENABLED = True # If True, will dump input.output of images from segmentation
+
+
+# Dummy function to do object detection using denset121 using a pretrained pytorch
+def test_object_detection(image_bytes = None):
     import torch
     import io
     import torchvision.transforms as transforms
@@ -41,13 +55,6 @@ def test_torch_and_tensorflow(image_bytes = None):
     print(get_prediction(image_bytes=image_bytes))
 
 
-tf.enable_eager_execution()
-
-from waymo_open_dataset.utils import range_image_utils
-from waymo_open_dataset.utils import transform_utils
-from waymo_open_dataset.utils import  frame_utils
-from waymo_open_dataset import dataset_pb2 as open_dataset
-
 def show_camera_image(camera_image, camera_labels, layout, cmap=None):
   """Show a camera image and the given camera labels."""
 
@@ -72,7 +79,8 @@ def show_camera_image(camera_image, camera_labels, layout, cmap=None):
         facecolor='none'))
 
   # Show the camera image.
-  plt.imshow(tf.image.decode_jpeg(camera_image.image), cmap=cmap)
+  imgDecoded = tf.image.decode_jpeg(camera_image.image)
+  plt.imshow(imgDecoded, cmap=cmap)
   plt.title(open_dataset.CameraName.Name.Name(camera_image.name))
   plt.grid(False)
   plt.axis('off')
@@ -163,12 +171,15 @@ def plot_points_on_image(projected_points, camera_image, rgba_func,
     colors.append(rgba_func(point[2]))
 
   plt.scatter(xs, ys, c=colors, s=point_size, edgecolors="none")
+
 ######################################################
 
-# 1. Read some data
-FILENAME = "/home/ciprian/Downloads/Waymo/segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord" #'frames'
+
+
+# 1. Iterate over frame by frame of a segment
 dataset = tf.data.TFRecordDataset(FILENAME, compression_type='')
-for data in dataset:
+for index, data in enumerate(dataset):
+    # Read the frame in bytes
     frame = open_dataset.Frame()
     frame.ParseFromString(bytearray(data.numpy()))
     break
@@ -182,7 +193,7 @@ for data in dataset:
 # 2. Print some cameras images in the data
 plt.figure(figsize=(25, 20))
 for index, image in enumerate(frame.images):
-    test_torch_and_tensorflow(image.image)
+    # test_object_detection(image.image)
     show_camera_image(image, frame.camera_labels, [3, 3, index+1])
 
 # 3. Print range images
