@@ -174,8 +174,6 @@ def plot_points_on_image(projected_points, camera_image, rgba_func,
 
 ######################################################
 
-
-
 # 1. Iterate over frame by frame of a segment
 dataset = tf.data.TFRecordDataset(FILENAME, compression_type='')
 for index, data in enumerate(dataset):
