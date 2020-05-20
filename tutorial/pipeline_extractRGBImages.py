@@ -9,6 +9,7 @@ import itertools
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import sys
+from pipeline_commons import *
 
 tf.enable_eager_execution()
 from waymo_open_dataset.utils import range_image_utils
@@ -47,11 +48,6 @@ def saveImagesAsSegmentationInput(allRGBImagesDict, destFolder):
             imagePath = getImagePath(destFolder, frameIndex, camera_index)
             image.save(imagePath)
 
-def extractSegmentNameFromPath(S):
-    # Expecting the path (S) to be something like "/home/ciprian/Downloads/Waymo/segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord"
-    # then we store only 10023947602400723454_1120_000_1140_000 out of this
-    return S[S.rfind('/') + 1 + len("segment-"): S.find("_with")]
-
 # Given a list of recoded segments from WAYMO, extract and save the images to semanticSegmentation/INPUT folder
 def do_extraction(recordSegmentFiles):
     for filePath in recordSegmentFiles:
@@ -73,14 +69,13 @@ def do_extraction(recordSegmentFiles):
             frame.ParseFromString(bytearray(data.numpy()))
 
             # Gather and decode all RGB images from this frame to the global store
-            segInputFolder = os.path.join("semanticSegmentation", "TEST_INPUT", segmentName)
+            segInputFolder = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName)
             gatherImagesFromFrame(frame, index, allRGBImagesDict, segInputFolder)
 
             saveImagesAsSegmentationInput(allRGBImagesDict, segInputFolder)
 
 # Use do_extraction from exterior and let main just for testing purposes
 # Or refactor the code with argparse
-if __name__ == "__main__":
-    FILENAMES = ["/home/ciprian/Downloads/Waymo/segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord"]  # 'frames']
-    do_extraction(FILENAMES)
+if __name__ == "__main__":  # 'frames']
+    do_extraction(FILENAME_SAMPLE)
 

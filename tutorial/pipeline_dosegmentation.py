@@ -4,21 +4,15 @@
 import pickle
 import os
 from semanticSegmentation import test as SemanticSegSupport
-
-INPUT_IMAGES_BASEPATH = os.path.join("semanticSegmentation", "TEST_INPUT")
-OUTPUT_LABELS_BASEFILEPATH = os.path.join("semanticSegmentation", "TEST_OUTPUT")
-OUTPUTCOMP_LABELS_BASEFILEPATH = os.path.join("semanticSegmentation", "TEST_OUTPUTCOMP")
-OUTPUT_LABELS_FILENAME = "_labels.pkl"
+from pipeline_commons import *
 
 def getLabelsOutputPathBySegmentName(segmentName):
-    return os.path.join(OUTPUT_LABELS_BASEFILEPATH, segmentName, OUTPUT_LABELS_FILENAME)
+    return os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUT_LABELS_FILENAME)
 
 def save_labels(obj, segmentName):
     outputPath = getLabelsOutputPathBySegmentName(segmentName)
     with open(outputPath, 'wb') as f:
         pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
-
-
 
 import re
 import pickle
@@ -68,9 +62,9 @@ def runSegmentation(listOfSegments):
         print(f"================= Segment {segmentName} ===============")
 
         # Setup segmentation for this segment from dataset
-        segmentFiles_InputPath      = os.path.join(INPUT_IMAGES_BASEPATH, segmentName)
-        segmentFiles_OutputPath     = os.path.join(OUTPUT_LABELS_BASEFILEPATH, segmentName)
-        segmentFiles_OutputCompPath = os.path.join(OUTPUTCOMP_LABELS_BASEFILEPATH, segmentName)
+        segmentFiles_InputPath      = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName)
+        segmentFiles_OutputPath     = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName)
+        segmentFiles_OutputCompPath = os.path.join(SEG_OUTPUTCOMP_LABELS_BASEFILEPATH, segmentName)
 
         modelParams = []
         modelParams.extend(["--imgs", segmentFiles_InputPath])
@@ -98,4 +92,5 @@ def runSegmentation(listOfSegments):
 SAVE_ONLY_LABELS = False #
 
 if __name__ == "__main__":
-    runSegmentation(["10023947602400723454_1120_000_1140_000"])
+    runSegmentation([extractSegmentNameFromPath(FILENAME_SAMPLE[0])])
+
