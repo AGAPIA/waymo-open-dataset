@@ -202,11 +202,18 @@ show_range_image(get_range_image(open_dataset.LaserName.TOP, 1), 4)
 
 
 # 4. Convert images to point cloud and view their content
+# points = Num lasers * [ [x, y, z In Vehicle frame] * num_points_with_range > 0]
+# cp_points = Num lasers *  [ [name Of camera 1, x in cam 1, y in cam 1], ...same for cam 2]
+# The indices and shapes are them same => we can take points[P] and say that its coordinates in vehicle frame
+# corresponds to cp_points[P] -> giving us the camera name of the projections plus the x,y in the respective camera.
+# My question is why there are two camera projections but probably this is another story...
 points, cp_points = frame_utils.convert_range_image_to_point_cloud(
     frame,
     range_images,
     camera_projections,
     range_image_top_pose)
+
+# Same as above but for return index 1
 points_ri2, cp_points_ri2 = frame_utils.convert_range_image_to_point_cloud(
     frame,
     range_images,
@@ -215,11 +222,16 @@ points_ri2, cp_points_ri2 = frame_utils.convert_range_image_to_point_cloud(
     ri_index=1)
 
 # 3d points in vehicle frame.
-points_all = np.concatenate(points, axis=0)
+points_all_ri0 = np.concatenate(points, axis=0)
 points_all_ri2 = np.concatenate(points_ri2, axis=0)
 # camera projection corresponding to each point.
-cp_points_all = np.concatenate(cp_points, axis=0)
+cp_points_all_ri0 = np.concatenate(cp_points, axis=0)
 cp_points_all_ri2 = np.concatenate(cp_points_ri2, axis=0)
+
+
+returnsIndicesToUse = [0,1]
+points_byreturn = [points_all_ri0, points_all_ri2]
+cp_points_byreturn = [cp_points_all_ri0, cp_points_all_ri2]
 
 '''
 # First return
@@ -242,26 +254,175 @@ for i in range(5):
 #display(Image('3d_point_cloud.png'))
 
 # 5. Project camera to image
-image_indices_to_project = [0,1,2,3,4]
-for image_index in image_indices_to_project:
-    images = sorted(frame.images, key=lambda i:i.name)
-    cp_points_all_concat = np.concatenate([cp_points_all, points_all], axis=-1)
+
+############ SOme util MOVE THEM
+from plyfile import PlyData, PlyElement
+
+def save_3d_pointcloud(points_3d, filename):
+    """Save this point-cloud to disk as PLY format."""
+
+    def construct_ply_header():
+        """Generates a PLY header given a total number of 3D points and
+        coloring property if specified
+        """
+        points = len(points_3d)  # Total point number
+        header = ['ply',
+                  'format ascii 1.0',
+                  'element vertex {}',
+                  'property float32 x',
+                  'property float32 y',
+                  'property float32 z',
+                  'property uchar diffuse_red',
+                  'property uchar diffuse_green',
+                  'property uchar diffuse_blue',
+                  'property uchar label',
+                  'end_header']
+        return '\n'.join(header).format(points)
+
+    for point in points_3d:
+        for p in point:
+            try:
+                n = float(p)
+            except ValueError:
+                print ("Problem " + str(point))
+    # points_3d = np.concatenate(
+    #     (point_list._array, self._color_array), axis=1)
+    try:
+        ply = '\n'.join(
+            ['{:.2f} {:.2f} {:.2f} {:.0f} {:.0f} {:.0f} {:.0f}'.format(*p) for p in points_3d])  # .replace('.',',')
+    except ValueError:
+        for point in points_3d:
+            print (point)
+            print ('{:.2f} {:.2f} {:.2f} {:.0f} {:.0f} {:.0f} {:.0f}'.format(*point))
+    # Create folder to save if does not exist.
+    # folder = os.path.dirname(filename)
+    # if not os.path.isdir(folder):
+    #     os.makedirs(folder)
+
+    # Open the file and save with the specific PLY format.
+    with open(filename, 'w+') as ply_file:
+        ply_file.write('\n'.join([construct_ply_header(), ply]))
+
+def read_3D_pointcloud(filename, file_end='/dense/fused_text.ply'):
+    plydata_3Dmodel = PlyData.read(filename + file_end)
+    nr_points = plydata_3Dmodel.elements[0].count
+    pointcloud_3D = np.array([plydata_3Dmodel['vertex'][k] for k in range(nr_points)])
+    return pointcloud_3D
+
+#########################
+
+
+# Demo: save all 3d points in a ply file - NO COLOR
+isPlyDemoEnabled = False
+isRangeColorShowingEnabled = False
+if isPlyDemoEnabled:
+    plyDataPoints = []
+    for returnIndex in returnsIndicesToUse:
+        points_data = points_byreturn[returnIndex]
+        for point3D in points_data:
+            plyDataPoints.append([*point3D, 255, 0, 0, 1])
+    save_3d_pointcloud(plyDataPoints, "test.ply")
+
+    plyDataPoints_Read = read_3D_pointcloud("test.ply", "")
+    exit(0)
+
+
+
+###########################################
+from scipy import stats
+
+# Aggregates all points given in the output dictionary, for each 3D point cloud will add the R G B in the scene and the segmentation label
+def processPoints(points3D_and_cp, outPlyDataPoints):
+    for point in points3D_and_cp:
+        x,y,z = point[0:3]
+        camX, camY = point[3:5]
+
+        # TODO:
+        R, G, B = 255, 0, 0
+        label = 1
+        key = (x,y,z)
+        if key not in outPlyDataPoints:
+            outPlyDataPoints[key] = []
+        outPlyDataPoints[key].append((R, G, B, label))
+
+# Takes the output dictionary build as above by ProcessPoints method and returns a flattened list
+def convertDictPointsToList(inPlyDataPoints):
+    outPlyDataPoints = []
+    for keyPoint3D, pointData in inPlyDataPoints.items():
+        x, y, z = keyPoint3D[0], keyPoint3D[1], keyPoint3D[2]
+
+        # Select the mode label from the point list
+        pointData = np.array(pointData).reshape(-1, 4) # R,G,B, seg label
+        mode, count = stats.mode(pointData[:, 3])
+        votedLabel = mode[0]
+
+        votedRGB = None
+        # Take first RGB corresponding to the mode
+        for dataIndex in range(pointData.shape[0]):
+            if pointData[dataIndex, 3] == votedLabel:
+                votedRGB = (x, y, z, pointData[dataIndex, 0], pointData[dataIndex, 1], pointData[dataIndex, 2])
+                break
+
+        outPlyDataPoints.append((*votedRGB, votedLabel))
+    return outPlyDataPoints
+
+# Here we gather all ply data in format: {(x,y,z) : [r g b label]], for all points in the point cloud.
+# Why dictionary ? Because we might want to discretize from original space to a lower dimensional space so same x,y,z from original data might go into the same chunk
+plyDataPoints = {}
+
+# For each return
+for returnIndex in returnsIndicesToUse:
+    image_indices_to_project = [0,1,2,3,4]
+
+    # Put together [projected camera data, 3D points] on the same row, convert to tensor
+    cp_points_all_concat = np.concatenate([cp_points_byreturn[returnIndex], points_byreturn[returnIndex]], axis=-1)
     cp_points_all_concat_tensor = tf.constant(cp_points_all_concat)
 
-    # The distance between lidar points and vehicle frame origin.
-    points_all_tensor = tf.norm(points_all, axis=-1, keepdims=True)
-    cp_points_all_tensor = tf.constant(cp_points_all, dtype=tf.int32)
+    # Compute the distance between lidar points and vehicle frame origin for each 3d point
+    distances_all_tensor = tf.norm(points_byreturn[returnIndex], axis=-1, keepdims=True) if isRangeColorShowingEnabled is True else None
 
-    mask = tf.equal(cp_points_all_tensor[..., 0], images[image_index].name)
+    # Create a tensor with all projected [projected camera data] and one with 3d points
+    cp_points_all_tensor = tf.constant(cp_points_byreturn[returnIndex], dtype=tf.int32)
+    points_3D_all_tensor = tf.constant(points_byreturn[returnIndex], dtype=tf.float32)
 
-    cp_points_all_tensor = tf.cast(tf.gather_nd(
-        cp_points_all_tensor, tf.where(mask)), dtype=tf.float32)
-    points_all_tensor = tf.gather_nd(points_all_tensor, tf.where(mask))
+    # For each camera image index
+    image_projections_indices = [0, 1]
+    for imageProjIndex in image_projections_indices:
+        for image_index in image_indices_to_project:
+            images = sorted(frame.images, key=lambda i:i.name)
 
-    projected_points_all_from_raw_data = tf.concat(
-        [cp_points_all_tensor[..., 1:3], points_all_tensor], axis=-1).numpy()
+            # A mask with True where the camera projection points where on this image index
+            mask = tf.equal(cp_points_all_tensor[..., 0 if imageProjIndex == 0 else 3], images[image_index].name)
 
-    plot_points_on_image(projected_points_all_from_raw_data,
-                         images[image_index], rgba, point_size=5.0)
+            # Now select only camera projection data and 3D points in vehicle frame associated with this camera index
+            cp_points_all_tensor_camera = tf.cast(tf.gather_nd(cp_points_all_tensor, tf.where(mask)), dtype=tf.float32)
+            points_3D_all_tensor_camera = tf.cast(tf.gather_nd(points_3D_all_tensor, tf.where(mask)), dtype=tf.float32)
 
-plt.show()
+            # Select only the cp points associated with the iterated camera projection index
+            cp_points_all_tensor_camera_byProjIndex = cp_points_all_tensor_camera[..., 1:3] if imageProjIndex == 0 else cp_points_all_tensor_camera[..., 4:6]
+
+            # Associate on each row one 3D point with its corresponding image camera projection (this index being iterated on)
+            # We have now on each row:  [(x,y,z, camX, camY)]
+            points3D_and_cp = tf.concat([points_3D_all_tensor_camera, cp_points_all_tensor_camera_byProjIndex], axis=-1).numpy()
+
+            # Gather these points in the output dictionary
+            processPoints(points3D_and_cp, plyDataPoints)
+
+            # Demo showing...
+            if isRangeColorShowingEnabled:
+                distances_all_tensor_camera = tf.gather_nd(distances_all_tensor, tf.where(mask))
+
+                # Associate on each row, with each x,y in camera space, the distance from vehicle frame to the 3D point lidar
+                projected_points_all_from_raw_data = tf.concat(
+                    [cp_points_all_tensor_camera[..., 1:3], distances_all_tensor_camera] if imageProjIndex == 0 else \
+                    [cp_points_all_tensor_camera[..., 4:6], distances_all_tensor_camera],
+                    axis=-1).numpy()
+
+                plot_points_on_image(projected_points_all_from_raw_data,
+                                     images[image_index], rgba, point_size=5.0)
+
+
+plyDataPointsFlattened = convertDictPointsToList(plyDataPoints)
+save_3d_pointcloud(plyDataPointsFlattened, "test2.ply") # TODO: save one file with test_x.ply, using RGB values, another one test_x_seg.ply using segmented data.
+
+#plt.show()
