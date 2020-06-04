@@ -56,10 +56,11 @@ def do_extraction(recordSegmentFiles):
 
         # 1. Iterate over frame by frame of a segment
         dataset = tf.data.TFRecordDataset(filePath, compression_type='')
-        print (dir(dataset))
-        print(dataset._functions())
-        numFrames = 200 #len(dataset)
-        print("Num frames: ", numFrames)
+
+        numFrames = 0
+        for index, data in enumerate(dataset):
+            numFrames += 1
+        print(f"Num frames in {segmentName}: ", numFrames)
 
         allRGBImagesDict = {}
         for index, data in enumerate(dataset):
@@ -69,7 +70,7 @@ def do_extraction(recordSegmentFiles):
             frame.ParseFromString(bytearray(data.numpy()))
 
             # Gather and decode all RGB images from this frame to the global store
-            segInputFolder = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName)
+            segInputFolder = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName, SEG_INPUT_IMAGES_RGBFOLDER)
             gatherImagesFromFrame(frame, index, allRGBImagesDict, segInputFolder)
 
             saveImagesAsSegmentationInput(allRGBImagesDict, segInputFolder)

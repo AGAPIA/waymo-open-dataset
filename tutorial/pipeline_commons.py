@@ -2,11 +2,24 @@
 import os
 import re
 
+BASE_OUTPUT_PATH = os.path.join("semanticSegmentation", "OUTPUT")
+
 # Input output for RGB extraction / segmentation
-SEG_INPUT_IMAGES_BASEPATH = os.path.join("semanticSegmentation", "TEST_INPUT")
-SEG_OUTPUT_LABELS_BASEFILEPATH = os.path.join("semanticSegmentation", "TEST_OUTPUT")
-SEG_OUTPUTCOMP_LABELS_BASEFILEPATH = os.path.join("semanticSegmentation", "TEST_OUTPUTCOMP")
-SEG_OUTPUT_LABELS_FILENAME = "_labels.pkl"
+SEG_INPUT_IMAGES_BASEPATH = BASE_OUTPUT_PATH
+SEG_INPUT_IMAGES_RGBFOLDER = "CameraRGB"
+
+SEG_OUTPUT_LABELS_BASEFILEPATH = BASE_OUTPUT_PATH
+SEG_OUTPUT_LABELS_SEGFOLDER = "CameraSeg"
+
+SEG_OUTPUTCOMP_LABELS_BASEFILEPATH = SEG_OUTPUT_LABELS_BASEFILEPATH # os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH,
+SEG_OUTPUTCOMP_LABELS_RGBFOLDER = "RGBCOMP"
+#SEG_OUTPUT_LABELS_FILENAME = "_labels.pkl"
+
+# Where to save the output for motion data (e.g. cars and people trajectories)
+MOTION_OUTPUT_BASEFILEPATH = BASE_OUTPUT_PATH
+
+# Where to save the output for point cloud reconstruction
+POINTCLOUD_OUTPUT_BASEFILEPATH = BASE_OUTPUT_PATH
 
 # Extracts a segment name from a given path
 def extractSegmentNameFromPath(S):

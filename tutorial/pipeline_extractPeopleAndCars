@@ -152,10 +152,9 @@ def runSegmentation(listOfSegmentsPaths):
         #print("Vehicles...\n", vehicle_data)
         #print("Pedestrians...\n", pedestrians_data)
 
-        # Save in the same folder as the segmentation labels...
-        # people.p and cars.p
+        # Save people.p and cars.p
         segmentName = extractSegmentNameFromPath(segmentPath)
-        segmentFiles_OutputPath = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName)
+        segmentFiles_OutputPath = os.path.join(MOTION_OUTPUT_BASEFILEPATH, segmentName)
 
         filepathsAndDictionaries = {'pedestrians' : (pedestrians_data, os.path.join(segmentFiles_OutputPath, "people.p")),
                                      'cars' : (vehicle_data, os.path.join(segmentFiles_OutputPath, "cars.p"))

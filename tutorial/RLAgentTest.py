@@ -17,7 +17,8 @@ from waymo_open_dataset import dataset_pb2 as open_dataset
 
 FILENAME = "/home/ciprian/Downloads/Waymo/segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord" #'frames'
 DEBUG_SEGMENTATION_ENABLED = True # If True, will dump input.output of images from segmentation
-
+NO_CAMERA_INDEX = -1
+NO_LABEL_POINT = 0
 
 # Dummy function to do object detection using denset121 using a pretrained pytorch
 def test_object_detection(image_bytes = None):
@@ -313,7 +314,7 @@ def read_3D_pointcloud(filename, file_end='/dense/fused_text.ply'):
 
 
 # Demo: save all 3d points in a ply file - NO COLOR
-isPlyDemoEnabled = False
+isPlyDemoEnabled = True
 isRangeColorShowingEnabled = False
 if isPlyDemoEnabled:
     plyDataPoints = []
@@ -324,7 +325,7 @@ if isPlyDemoEnabled:
     save_3d_pointcloud(plyDataPoints, "test.ply")
 
     plyDataPoints_Read = read_3D_pointcloud("test.ply", "")
-    exit(0)
+    #exit(0)
 
 
 
@@ -332,18 +333,28 @@ if isPlyDemoEnabled:
 from scipy import stats
 
 # Aggregates all points given in the output dictionary, for each 3D point cloud will add the R G B in the scene and the segmentation label
-def processPoints(points3D_and_cp, outPlyDataPoints):
+# unprojectedPoints is True if the points have no label or camera projection image
+def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMERA_INDEX):
     for point in points3D_and_cp:
         x,y,z = point[0:3]
-        camX, camY = point[3:5]
+        key = (x, y, z)
 
-        # TODO:
-        R, G, B = 255, 0, 0
-        label = 1
-        key = (x,y,z)
+        camX, camY = None, None
+        R, G, B = 0, 0, 0
+        label = NO_LABEL_POINT
+
+        if imageCameraIndex != NO_CAMERA_INDEX:
+            camX, camY = point[3:5]
+
+            # TODO:
+            R, G, B = 255, 0, 0
+            label = 1
+
+
         if key not in outPlyDataPoints:
             outPlyDataPoints[key] = []
         outPlyDataPoints[key].append((R, G, B, label))
+
 
 # Takes the output dictionary build as above by ProcessPoints method and returns a flattened list
 def convertDictPointsToList(inPlyDataPoints):
@@ -355,6 +366,12 @@ def convertDictPointsToList(inPlyDataPoints):
         pointData = np.array(pointData).reshape(-1, 4) # R,G,B, seg label
         mode, count = stats.mode(pointData[:, 3])
         votedLabel = mode[0]
+
+        #COMMENT THIS - Debug to see multiple points on the same coordinate:
+        if pointData.shape[0] > 1:
+            print("P: ({:.2f} {:.2f} {:.2f}) {}".format(x, y, z, pointData))
+
+        # end debug
 
         votedRGB = None
         # Take first RGB corresponding to the mode
@@ -369,6 +386,7 @@ def convertDictPointsToList(inPlyDataPoints):
 # Here we gather all ply data in format: {(x,y,z) : [r g b label]], for all points in the point cloud.
 # Why dictionary ? Because we might want to discretize from original space to a lower dimensional space so same x,y,z from original data might go into the same chunk
 plyDataPoints = {}
+
 
 # For each return
 for returnIndex in returnsIndicesToUse:
@@ -406,7 +424,7 @@ for returnIndex in returnsIndicesToUse:
             points3D_and_cp = tf.concat([points_3D_all_tensor_camera, cp_points_all_tensor_camera_byProjIndex], axis=-1).numpy()
 
             # Gather these points in the output dictionary
-            processPoints(points3D_and_cp, plyDataPoints)
+            processPoints(points3D_and_cp, plyDataPoints, imageCameraIndex = image_index)
 
             # Demo showing...
             if isRangeColorShowingEnabled:
@@ -421,6 +439,10 @@ for returnIndex in returnsIndicesToUse:
                 plot_points_on_image(projected_points_all_from_raw_data,
                                      images[image_index], rgba, point_size=5.0)
 
+    # Add all point cloud points which are not not labeled (not found in a projected camera image)
+    mask = tf.equal(cp_points_all_tensor[..., 0], 0) # 0 is the index for unprojected camera point, on first cp index
+    points_3D_all_unprojected_tensor = tf.cast(tf.gather_nd(points_3D_all_tensor, tf.where(mask)), dtype=tf.float32)
+    processPoints(points_3D_all_unprojected_tensor.numpy(), plyDataPoints, imageCameraIndex = NO_CAMERA_INDEX)
 
 plyDataPointsFlattened = convertDictPointsToList(plyDataPoints)
 save_3d_pointcloud(plyDataPointsFlattened, "test2.ply") # TODO: save one file with test_x.ply, using RGB values, another one test_x_seg.ply using segmented data.
