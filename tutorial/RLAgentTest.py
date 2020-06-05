@@ -407,7 +407,7 @@ for returnIndex in returnsIndicesToUse:
     image_projections_indices = [0, 1]
     for imageProjIndex in image_projections_indices:
         for image_index in image_indices_to_project:
-            images = sorted(frame.images, key=lambda i:i.name)
+            images = getSortedImagesFromFrameData(frame)
 
             # A mask with True where the camera projection points where on this image index
             mask = tf.equal(cp_points_all_tensor[..., 0 if imageProjIndex == 0 else 3], images[image_index].name)

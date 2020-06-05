@@ -23,7 +23,9 @@ def getImagePath(destFolder, frameIndex, cameraIndex):
 # Gather all images from a frame to a dictionary
 def gatherImagesFromFrame(frameData, frameIndex, datasetPictures, outputFolder):
     localImagesDict = {}
-    for index,img in enumerate(frameData.images):
+
+    images = getSortedImagesFromFrameData(frameData)
+    for index,img in enumerate(images):
         if os.path.exists(getImagePath(outputFolder, frameIndex, index)):
             continue
 

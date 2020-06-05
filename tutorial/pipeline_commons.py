@@ -21,6 +21,11 @@ MOTION_OUTPUT_BASEFILEPATH = BASE_OUTPUT_PATH
 # Where to save the output for point cloud reconstruction
 POINTCLOUD_OUTPUT_BASEFILEPATH = BASE_OUTPUT_PATH
 
+# Unified way to process the camera in a frame in a ordered way
+def getSortedImagesFromFrameData(frame):
+    images = sorted(frame.images, key=lambda i:i.name)
+    return images
+
 # Extracts a segment name from a given path
 def extractSegmentNameFromPath(S):
     # Expecting the path (S) to be something like "/home/ciprian/Downloads/Waymo/segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord"

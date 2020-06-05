@@ -19,17 +19,22 @@ from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 from plyfile import PlyData, PlyElement
 from scipy import stats
+from PIL import Image
+import pickle
 
 # Some internal settings
 #--------------------------------
 IS_DEBUG_ENABLED = False
-DEBUG_ONE_FRAME_OUTPUT = True
+DEBUG_FRAMEINDEX_LIMIT = 30 # If should stop after first frame or not...good for fast debugging
 IS_RANGE_COLOR_ShOWING_ENABLED = False # DEbug to see range projections on images plot
 returnsIndicesToUse = [0, 1] # Should we use just first laser return or both ?
-image_indices_to_project = [0, 1, 2, 3, 4] # The camera indices to project on
+cameraindices_to_use = [0, 1, 2, 3, 4] # The camera indices to project on
 DEBUG_SEGMENTATION_ENABLED = True # If True, will dump input.output of images from segmentation
 NO_CAMERA_INDEX = -1
 NO_LABEL_POINT = 0
+
+# If true, the output of the point cloud will be in the world space output, relative to the reference point (first pose of the vehicle in world)
+DO_OUTPUT_IN_WORLD_SPACE = True
 #--------------------------------
 
 # Some utility functions
@@ -151,6 +156,26 @@ def plot_points_on_image(projected_points, camera_image, rgba_func,
 
   plt.scatter(xs, ys, c=colors, s=point_size, edgecolors="none")
 
+
+# These two functions read the the RGB and segmentation data corresponding to one frame.
+# The output is {'camera index' : data } where data is [Height, Width, RGB] array
+def readRGBDataForFrame(frameIndex, segmentName):
+    RGB_IMAGES_PATH = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName, SEG_INPUT_IMAGES_RGBFOLDER)
+
+    outData = {}
+    for cameraIndex in cameraindices_to_use:
+        pic = Image.open(os.path.join(RGB_IMAGES_PATH, f"frame_{frameIndex}_img_{cameraIndex}.jpg"))
+        outData[cameraIndex] = np.array(pic)
+    return outData
+
+def readSEGDataForFrame(frameIndex, segmentName):
+    SEG_IMAGES_PATH = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUT_LABELS_SEGFOLDER)
+    targetFilePath = os.path.join(SEG_IMAGES_PATH, f"labels_{frameIndex}.pkl")
+    outData = pickle.load(open(targetFilePath, "rb"))
+
+    assert sorted(outData.keys()) == sorted(cameraindices_to_use), "Invalid data content !"
+    return outData
+
 def save_3d_pointcloud_asSegLabel(points_3d, filename):
     """Save this point-cloud to disk as PLY format."""
 
@@ -248,7 +273,7 @@ def read_3D_pointcloud(filename, file_end='/dense/fused_text.ply'):
 
 # Aggregates all points given in the output dictionary, for each 3D point cloud will add the R G B in the scene and the segmentation label
 # unprojectedPoints is True if the points have no label or camera projection image
-def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMERA_INDEX):
+def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMERA_INDEX, rgbData = None, segData = None):
     for point in points3D_and_cp:
         x,y,z = point[0:3]
         key = (x, y, z)
@@ -258,12 +283,17 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
         label = NO_LABEL_POINT
 
         if imageCameraIndex != NO_CAMERA_INDEX:
-            camX, camY = point[3:5]
+            rgbCamera = rgbData[imageCameraIndex]
+            segCamera = segData[imageCameraIndex]
 
-            # TODO:
-            R, G, B = 255, 0, 0
-            label = 1
+            camX, camY = int(point[3]), int(point[4])
 
+#            try:
+            R, G, B = rgbCamera[camY, camX, :]
+            label = int(segCamera[camY, camX])
+#            except:
+#                print("Exception")
+#                pass
 
         if key not in outPlyDataPoints:
             outPlyDataPoints[key] = []
@@ -272,6 +302,8 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
 # Takes the output dictionary build as above by ProcessPoints method and returns a flattened list
 def convertDictPointsToList(inPlyDataPoints):
     outPlyDataPoints = []
+
+    stat_numPointsWhereVotesAreNeeded = 0 # just for some stat
     for keyPoint3D, pointData in inPlyDataPoints.items():
         x, y, z = keyPoint3D[0], keyPoint3D[1], keyPoint3D[2]
 
@@ -282,7 +314,8 @@ def convertDictPointsToList(inPlyDataPoints):
 
         #COMMENT THIS - Debug to see multiple points on the same coordinate:
         if pointData.shape[0] > 1:
-            print("P: ({:.2f} {:.2f} {:.2f}) {}".format(x, y, z, pointData))
+            #print("P: ({:.2f} {:.2f} {:.2f}) {}".format(x, y, z, pointData))
+            stat_numPointsWhereVotesAreNeeded += 1
 
         # end debug
 
@@ -294,10 +327,12 @@ def convertDictPointsToList(inPlyDataPoints):
                 break
 
         outPlyDataPoints.append((*votedRGB, votedLabel))
+
+    print(f"Needed votes from {stat_numPointsWhereVotesAreNeeded} out of {len(inPlyDataPoints)}")
     return outPlyDataPoints
 #-----------------------------------------------
 
-def getPointCloudPointsAndCameraProjections(frame):
+def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferencePointTransform):
     # Get the range images, camera projects from the frame data
     (range_images, camera_projections, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
 
@@ -342,13 +377,40 @@ def getPointCloudPointsAndCameraProjections(frame):
     cp_points_all_ri2 = np.concatenate(cp_points_ri2, axis=0)
 
     # These are the 3d points and camera projection data for each
-    points_byreturn = [points_all_ri0, points_all_ri2]
-    cp_points_byreturn = [cp_points_all_ri0, cp_points_all_ri2]
+    points_byreturn     = [points_all_ri0, points_all_ri2]
+    cp_points_byreturn  = [cp_points_all_ri0, cp_points_all_ri2]
+
+
+    # Last step: convert all points from vehicle frame space to world space - relative to the first vehicle frame pose
+    # Get the vehicle transform to world in this frame
+    if DO_OUTPUT_IN_WORLD_SPACE is True:
+        vehicleToWorldTransform     = thisFramePose
+        vehicleToWorldRotation      = vehicleToWorldTransform[0:3, 0:3]
+        vehicleToWorldTranslation   = vehicleToWorldTransform[0:3, 3]
+
+        # Then world transform back to reference point
+        worldToReferenceRotation    = worldToReferencePointTransform[0:3, 0:3]
+        worldToReferenceTranslation = worldToReferencePointTransform[0:3, 3]
+
+        #
+        for returnIndex, allPoints in enumerate(points_byreturn):
+            # Transform all points to world coordinates first
+            allPoints   = tf.einsum('jk,ik->ij', vehicleToWorldRotation, allPoints) + tf.expand_dims(vehicleToWorldTranslation, axis=-2)
+
+            # Then from world to world reference
+            allPoints     = tf.einsum('jk,ik->ij', worldToReferenceRotation, allPoints) + tf.expand_dims(worldToReferenceTranslation, axis=-2)
+
+            # Copy back
+            points_byreturn[returnIndex] = allPoints.numpy()
 
     return points_byreturn, cp_points_byreturn
 
 
 def doPointCloudReconstruction(recordSegmentFiles):
+
+    # These are the transformation from world frame to the reference vehicle frame (first pose of the vehicle in the world)
+    worldToReferencePointTransform = None
+
     # Iterate over all segmentation names sent
     for segmentPath in recordSegmentFiles:
         assert os.path.exists(segmentPath), (f'The file you specified {segmentPath} doesn\'t exist !')
@@ -359,19 +421,39 @@ def doPointCloudReconstruction(recordSegmentFiles):
         # 1. Iterate over frame by frame of a segment
         dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
         for frameIndex, data in enumerate(dataset):
+            print(f"Extracting point cloud from frame {frameIndex}...")
             # Step 1: Read the frame in bytes
+            # -------------------------------------------
             frame = open_dataset.Frame()
             frame.ParseFromString(bytearray(data.numpy()))
 
+            # All point cloud data is relative to the car with sensors attached
+            # We can transform to world positions using frame.pose.transform.
+            # But to get coordinates back to the reference frame - WHICH IS THE INITIAL POSITION OF THE CAR - we use the below inverse matrix
+            frame_thisPose = np.reshape(np.array(frame.pose.transform).astype(np.float32), [4, 4])
+            if frameIndex == 0:
+                worldToReferencePointTransform  = np.linalg.inv(frame_thisPose)
+            # -------------------------------------------
+
 
             # Step 2: Process the frame and get the 3d lidar points and camera projected points from the frame, for each return
-            points_byreturn, cp_points_byreturn = getPointCloudPointsAndCameraProjections(frame)
+            # -------------------------------------------
+            points_byreturn, cp_points_byreturn = getPointCloudPointsAndCameraProjections(frame, frame_thisPose, worldToReferencePointTransform)
+            # -------------------------------------------
 
 
             # Step 3: iterate over all point cloud data and camera projections and fill a dictionary with each 3D point data
             # Here we gather all ply data in format: {(x,y,z) : [r g b label]], for all points in the point cloud.
             # Why dictionary ? Because we might want to discretize from original space to a lower dimensional space so same x,y,z from original data might go into the same chunk
+            # -------------------------------------------
             plyDataPoints = {}
+
+            # Read the RGB images and segmentation labels corresponding for this frame
+            RGB_Data = readRGBDataForFrame(frameIndex, segmentName)
+            SEG_Data = readSEGDataForFrame(frameIndex, segmentName)
+
+            # Sort images by key index
+            images = sorted(frame.images, key=lambda i: i.name)
 
             # For each return
             for returnIndex in returnsIndicesToUse:
@@ -391,8 +473,8 @@ def doPointCloudReconstruction(recordSegmentFiles):
                 # For each camera image index
                 image_projections_indices = [0, 1]
                 for imageProjIndex in image_projections_indices:
-                    for image_index in image_indices_to_project:
-                        images = sorted(frame.images, key=lambda i: i.name)
+                    for image_index in cameraindices_to_use:
+                        assert len(images) == len(cameraindices_to_use), ("looks like you need to add more data in image_projection_indices and see if I didn't do any hacks with it ! Waymo data changed")
 
                         # A mask with True where the camera projection points where on this image index
                         mask = tf.equal(cp_points_all_tensor[..., 0 if imageProjIndex == 0 else 3],
@@ -405,17 +487,15 @@ def doPointCloudReconstruction(recordSegmentFiles):
                                                               dtype=tf.float32)
 
                         # Select only the cp points associated with the iterated camera projection index
-                        cp_points_all_tensor_camera_byProjIndex = cp_points_all_tensor_camera[...,
-                                                                  1:3] if imageProjIndex == 0 else cp_points_all_tensor_camera[
-                                                                                                   ..., 4:6]
+                        cp_points_all_tensor_camera_byProjIndex = cp_points_all_tensor_camera[...,1:3] if imageProjIndex == 0 \
+                                                                    else cp_points_all_tensor_camera[..., 4:6]
 
                         # Associate on each row one 3D point with its corresponding image camera projection (this index being iterated on)
                         # We have now on each row:  [(x,y,z, camX, camY)]
-                        points3D_and_cp = tf.concat(
-                            [points_3D_all_tensor_camera, cp_points_all_tensor_camera_byProjIndex], axis=-1).numpy()
+                        points3D_and_cp = tf.concat([points_3D_all_tensor_camera, cp_points_all_tensor_camera_byProjIndex], axis=-1).numpy()
 
                         # Gather these points in the output dictionary
-                        processPoints(points3D_and_cp, plyDataPoints, imageCameraIndex=image_index)
+                        processPoints(points3D_and_cp, plyDataPoints, imageCameraIndex=image_index, rgbData = RGB_Data, segData = SEG_Data)
 
                         # Demo showing...
                         if IS_RANGE_COLOR_ShOWING_ENABLED:
@@ -443,8 +523,9 @@ def doPointCloudReconstruction(recordSegmentFiles):
             save_3d_pointcloud_asRGB(plyDataPointsFlattened, outputFramePath_rgb)  # TODO: save one file with test_x.ply, using RGB values, another one test_x_seg.ply using segmented data.
             save_3d_pointcloud_asSegLabel(plyDataPointsFlattened, outputFramePath_seg)
 
-            if DEBUG_ONE_FRAME_OUTPUT == True:
+            if DEBUG_FRAMEINDEX_LIMIT is not None and DEBUG_FRAMEINDEX_LIMIT <= frameIndex:
                 break
+            # -------------------------------------------
 
 
 if __name__ == "__main__":
