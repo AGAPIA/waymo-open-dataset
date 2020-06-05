@@ -35,6 +35,8 @@ NO_LABEL_POINT = 0
 
 # If true, the output of the point cloud will be in the world space output, relative to the reference point (first pose of the vehicle in world)
 DO_OUTPUT_IN_WORLD_SPACE = True
+
+ade20KToCarla = None # A dictionary containing mapping from [ADE20K label - > CARLA label] for mapping the output segmentation values
 #--------------------------------
 
 # Some utility functions
@@ -291,6 +293,8 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
 #            try:
             R, G, B = rgbCamera[camY, camX, :]
             label = int(segCamera[camY, camX])
+
+            label = ade20KToCarla[label] # Move to CARLA segmentation values
 #            except:
 #                print("Exception")
 #                pass
@@ -527,7 +531,18 @@ def doPointCloudReconstruction(recordSegmentFiles):
                 break
             # -------------------------------------------
 
+def setupGlobals():
+    global ade20KToCarla
+    import numpy as np
+    import pandas as pd
+    labelsMapping = pd.read_csv(ADE20K_TO_CARLA_MAPPING_CSV)
+    # labelsMapping.head()
+    ADE20K_labels = np.array(labelsMapping['Idx'])
+    CARLA_labels = np.array(labelsMapping['CARLA_ID'])
+    ade20KToCarla = {ADE20K_labels[k]: CARLA_labels[k] for k in range(len(ADE20K_labels))}
+    ade20KToCarla[0] = 0
 
 if __name__ == "__main__":
+    setupGlobals()
     doPointCloudReconstruction(FILENAME_SAMPLE)
 

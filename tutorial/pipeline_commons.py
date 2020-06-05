@@ -3,6 +3,7 @@ import os
 import re
 
 BASE_OUTPUT_PATH = os.path.join("semanticSegmentation", "OUTPUT")
+ADE20K_TO_CARLA_MAPPING_CSV = os.path.join("semanticSegmentation", "data", "object150_info_TO_CARLA.csv")
 
 # Input output for RGB extraction / segmentation
 SEG_INPUT_IMAGES_BASEPATH = BASE_OUTPUT_PATH
