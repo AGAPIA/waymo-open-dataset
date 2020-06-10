@@ -3,7 +3,56 @@ import os
 import re
 
 BASE_OUTPUT_PATH = os.path.join("semanticSegmentation", "OUTPUT")
+
+# Mapping from ADE20K, the segmentation method dataset that we use to CARLA - the output
+##################
 ADE20K_TO_CARLA_MAPPING_CSV = os.path.join("semanticSegmentation", "data", "object150_info_TO_CARLA.csv")
+
+# 0 	None		Label(  'unlabeled'            ,  0 ,      255 , 'void'            , 0       , False        , True         , ),
+# 1 	Buildings	Label(  ''             , 11 ,        2 , 'construction'    , 2       , False        , False        , ( 70, 70, 70) ),
+# 2 	Fences		Label(  ''                , 13 ,        4 , 'construction'    , 2       , False        , False        , (190,153,153) ),
+# 3 	Other		Label(  ''               ,  4 ,      255 , 'void'            , 0       , False        , True         , (  0,  0,  0) ),
+# 4 	Pedestrians	Label(  ''               , 24 ,       11 , 'human'           , 6       , True         , False        , (220, 20, 60) ),
+# 5 	Poles		Label(  'pole'                 , 17 ,        5 , 'object'          , 3       , False        , False        , (153,153,153) ),
+# 6 	RoadLines	Label(  'road'                 ,  7 ,        0 , 'flat'            , 1       , False        , False        , (128, 64,128) ),
+# 7 	Roads		Label(  'road'                 ,  7 ,        0 , 'flat'            , 1       , False        , False        , (128, 64,128) ),
+# 8 	Sidewalks	Label(  'sidewalk'             ,  8 ,        1 , 'flat'            , 1       , False        , False        , (244, 35,232) ),
+# 9 	Vegetation	Label(  'vegetation'           , 21 ,        8 , 'nature'          , 4       , False        , False        , (107,142, 35) ),
+# 10 	Vehicles	Label(  'car'                  , 26 ,       13 , 'vehicle'         , 7       , True         , False        , (  0,  0,142) ),
+# 11 	Walls		Label(  'wall'                 , 12 ,        3 , 'construction'    , 2       , False        , False        , (102,102,156) ),
+# 12 	TrafficSigns	Label(  'traffic sign'         , 20 ,        7 , 'object'          , 3       , False        , False        , (220,220,  0) ),
+
+carla_label_colours=[(0, 0, 0),        #0
+                    ( 70, 70, 70) ,     #1
+                    (190,153,153) ,     #2
+                    (  0,  0,  0),      #3
+                    (220, 20, 60),      #4
+                    (153,153,153),      #5
+                    (128, 64,128),      #6
+                    (128, 64,128),      #7
+                    (244, 35,232),      #8,
+                    (107,142, 35),      #9,
+                    (  0, 0, 142),      #10
+                    (102,102,156),      #11
+                    (220,220,  0),      #12
+                     ]
+
+carla_labels=['unlabeled',      #0
+                'building' ,    #1
+                'fence' ,       #2
+                'static',       #3
+                'person',       #4
+                'pole',         #5
+                'road',         #6
+                'road',         #7
+                'sidewalk',     #8
+                'vegetation',   #9
+                'car',          #10
+                'wall',         #11
+                'traffic sign', #12
+              ]
+
+####################
 
 # Input output for RGB extraction / segmentation
 SEG_INPUT_IMAGES_BASEPATH = BASE_OUTPUT_PATH

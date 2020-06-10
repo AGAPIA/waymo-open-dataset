@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import sys
 from pipeline_commons import *
+import collections
 
 tf.enable_eager_execution()
 from waymo_open_dataset.utils import range_image_utils
@@ -32,6 +33,8 @@ cameraindices_to_use = [0, 1, 2, 3, 4] # The camera indices to project on
 DEBUG_SEGMENTATION_ENABLED = True # If True, will dump input.output of images from segmentation
 NO_CAMERA_INDEX = -1
 NO_LABEL_POINT = 0
+
+Point3DInfoType = collections.namedtuple('Point3DInfo', ['x', 'y', 'z', 'R', 'G', 'B', 'segLabel', 'segR', 'segG', 'segB'])
 
 # If true, the output of the point cloud will be in the world space output, relative to the reference point (first pose of the vehicle in world)
 DO_OUTPUT_IN_WORLD_SPACE = True
@@ -197,7 +200,7 @@ def save_3d_pointcloud_asSegLabel(points_3d, filename):
         return '\n'.join(header).format(points)
 
     for point in points_3d:
-        assert len(point) == 7, "invalid data input" # xyz rgb label
+        assert len(point) == 10, "invalid data input" # xyz rgb label
         for p in point:
             try:
                 n = float(p)
@@ -208,11 +211,56 @@ def save_3d_pointcloud_asSegLabel(points_3d, filename):
 
     try:
         ply = '\n'.join(
-            ['{:.2f} {:.2f} {:.2f} {:.0f}'.format(p[0], p[1], p[2], p[6]) for p in points_3d])  # .replace('.',',')
+            ['{:.2f} {:.2f} {:.2f} {:.0f}'.format(p.x, p.y, p.z, p.segLabel) for p in points_3d])  # .replace('.',',')
     except ValueError:
         for point in points_3d:
             print (point)
             print ('{:.2f} {:.2f} {:.2f}{:.0f}'.format(*point))
+    # Create folder to save if does not exist.
+    # folder = os.path.dirname(filename)
+    # if not os.path.isdir(folder):
+    #     os.makedirs(folder)
+
+    # Open the file and save with the specific PLY format.
+    with open(filename, 'w+') as ply_file:
+        ply_file.write('\n'.join([construct_ply_header(), ply]))
+
+def save_3d_pointcloud_asSegColored(points_3d, filename):
+    """Save this point-cloud to disk as PLY format."""
+
+    def construct_ply_header():
+        """Generates a PLY header given a total number of 3D points and
+        coloring property if specified
+        """
+        points = len(points_3d)  # Total point number
+        header = ['ply',
+                  'format ascii 1.0',
+                  'element vertex {}',
+                  'property float32 x',
+                  'property float32 y',
+                  'property float32 z',
+                  'property uchar diffuse_red',
+                  'property uchar diffuse_green',
+                  'property uchar diffuse_blue',
+                  'end_header']
+        return '\n'.join(header).format(points)
+
+    for point in points_3d:
+        assert len(point) == 10, "invalid data input" # xyz rgb label
+        for p in point:
+            try:
+                n = float(p)
+            except ValueError:
+                print ("Problem " + str(point))
+    # points_3d = np.concatenate(
+    #     (point_list._array, self._color_array), axis=1)
+    try:
+        ply = '\n'.join(
+            ['{:.2f} {:.2f} {:.2f} {:.0f} {:.0f} {:.0f}'.format(p.x, p.y, p.z, p.segR, p.segG, p.segB) for p in points_3d])  # .replace('.',',')
+    except ValueError:
+        for point in points_3d:
+            print (point)
+            print ('{:.2f} {:.2f} {:.2f} {:.0f} {:.0f} {:.0f}'.format(*point))
     # Create folder to save if does not exist.
     # folder = os.path.dirname(filename)
     # if not os.path.isdir(folder):
@@ -243,21 +291,22 @@ def save_3d_pointcloud_asRGB(points_3d, filename):
         return '\n'.join(header).format(points)
 
     for point in points_3d:
-        assert len(point) == 7, "invalid data input" # xyz rgb label
+        assert len(point) == 10, "invalid data input"  # xyz rgb label
         for p in point:
             try:
                 n = float(p)
             except ValueError:
-                print ("Problem " + str(point))
+                print("Problem " + str(point))
     # points_3d = np.concatenate(
     #     (point_list._array, self._color_array), axis=1)
     try:
         ply = '\n'.join(
-            ['{:.2f} {:.2f} {:.2f} {:.0f} {:.0f} {:.0f}'.format(p[0], p[1], p[2], p[3], p[4], p[5]) for p in points_3d])  # .replace('.',',')
+            ['{:.2f} {:.2f} {:.2f} {:.0f} {:.0f} {:.0f}'.format(p.x, p.y, p.z, p.R, p.G, p.B) for p in
+             points_3d])  # .replace('.',',')
     except ValueError:
         for point in points_3d:
-            print (point)
-            print ('{:.2f} {:.2f} {:.2f} {:.0f} {:.0f} {:.0f}'.format(*point))
+            print(point)
+            print('{:.2f} {:.2f} {:.2f} {:.0f} {:.0f} {:.0f}'.format(*point))
     # Create folder to save if does not exist.
     # folder = os.path.dirname(filename)
     # if not os.path.isdir(folder):
@@ -292,7 +341,7 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
 
 #            try:
             R, G, B = rgbCamera[camY, camX, :]
-            label = int(segCamera[camY, camX])
+            label = int(segCamera[camY, camX]) + 1 # WHY DO WE ADD + 1 here ?? BECAUSE ADE20K returns in range [0,149] while naming and all dictionaries are in [1,150]
 
             label = ade20KToCarla[label] # Move to CARLA segmentation values
 #            except:
@@ -301,6 +350,7 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
 
         if key not in outPlyDataPoints:
             outPlyDataPoints[key] = []
+
         outPlyDataPoints[key].append((R, G, B, label))
 
 # Takes the output dictionary build as above by ProcessPoints method and returns a flattened list
@@ -330,7 +380,8 @@ def convertDictPointsToList(inPlyDataPoints):
                 votedRGB = (x, y, z, pointData[dataIndex, 0], pointData[dataIndex, 1], pointData[dataIndex, 2])
                 break
 
-        outPlyDataPoints.append((*votedRGB, votedLabel))
+        segColor = carla_label_colours[votedLabel]
+        outPlyDataPoints.append(Point3DInfoType(*votedRGB, votedLabel, *segColor))
 
     print(f"Needed votes from {stat_numPointsWhereVotesAreNeeded} out of {len(inPlyDataPoints)}")
     return outPlyDataPoints
@@ -524,8 +575,11 @@ def doPointCloudReconstruction(recordSegmentFiles):
             folderOutput    = os.path.join(POINTCLOUD_OUTPUT_BASEFILEPATH, segmentName)
             outputFramePath_rgb =  os.path.join(folderOutput, ("{0:05d}.ply").format(frameIndex))
             outputFramePath_seg =  os.path.join(folderOutput, ("{0:05d}_seg.ply").format(frameIndex))
+            outputFramePath_segColored = os.path.join(folderOutput, ("{0:05d}_segColor.ply").format(frameIndex))
+
             save_3d_pointcloud_asRGB(plyDataPointsFlattened, outputFramePath_rgb)  # TODO: save one file with test_x.ply, using RGB values, another one test_x_seg.ply using segmented data.
             save_3d_pointcloud_asSegLabel(plyDataPointsFlattened, outputFramePath_seg)
+            save_3d_pointcloud_asSegColored(plyDataPointsFlattened, outputFramePath_segColored)
 
             if DEBUG_FRAMEINDEX_LIMIT is not None and DEBUG_FRAMEINDEX_LIMIT <= frameIndex:
                 break
