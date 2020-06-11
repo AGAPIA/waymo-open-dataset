@@ -2,6 +2,10 @@
 import os
 import re
 
+# Where to write the output of scenes filetering tool
+OUTPUT_SCENES_FILTERING_PATH = r'scenes.csv'
+
+# WHere to write the output of the data converion process
 BASE_OUTPUT_PATH = os.path.join("semanticSegmentation", "OUTPUT")
 
 # Mapping from ADE20K, the segmentation method dataset that we use to CARLA - the output
@@ -85,3 +89,4 @@ def extractSegmentNameFromPath(S):
 
 # A few sample segment paths to test pipeline
 FILENAME_SAMPLE = ["/home/ciprian/Downloads/Waymo/segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord"]
+FOLDER_WAYMODATASET_SAMPLE = ["/home/ciprian/Downloads/Waymo/"] # Where the entire dataset is for Wamo

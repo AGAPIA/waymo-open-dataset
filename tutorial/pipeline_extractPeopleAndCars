@@ -88,7 +88,7 @@ def debugTest():
     corners = get_min_max_3d_box_corners(bboxes, transform)
     print(corners)
 
-def runSegmentation(listOfSegmentsPaths):
+def runExtraction(listOfSegmentsPaths):
     # Define base segmentation modelBaseParams such as model and configs
     allRGBImagesDict = {}
     for segmentPath in listOfSegmentsPaths:
@@ -166,4 +166,4 @@ def runSegmentation(listOfSegmentsPaths):
                 pickle.dump(dataObj, fileObj, protocol=2) # Protocol 2 because seems to be compatible between 2.x and 3.x !
 
 if __name__ == "__main__": # 'frames'
-    runSegmentation(FILENAME_SAMPLE)
+    runExtraction(FILENAME_SAMPLE)
