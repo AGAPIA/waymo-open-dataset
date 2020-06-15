@@ -69,6 +69,21 @@ def is_within_box_3d(point, box, name=None):
 
     return point_in_box
 
+def is_within_any_box_3d(point, box, name=None):
+    """Checks whether a point is in any of 3d box given a set of points and boxes.
+
+    Args:
+    point: [N, 3] tensor. Inner dims are: [x, y, z].
+    box: [M, 7] tensor. Inner dims are: [center_x, center_y, center_z, length,
+      width, height, heading].
+    name: tf name scope.
+
+    Returns:
+    point_in_box; [N] boolean numpy tensor. R[i] = True if point is in any of the boxes
+    """
+    res = is_within_box_3d(point, box, name)
+    res = tf.reduce_any(input_tensor=res, axis = -1)
+    return res.numpy()
 
 def compute_num_points_in_box_3d(point, box, name=None):
   """Computes the number of points in each box given a set of points and boxes.

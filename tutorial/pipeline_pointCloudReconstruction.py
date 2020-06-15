@@ -17,30 +17,135 @@ tf.enable_eager_execution()
 from waymo_open_dataset.utils import range_image_utils
 from waymo_open_dataset.utils import transform_utils
 from waymo_open_dataset.utils import  frame_utils
+from waymo_open_dataset.utils import box_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 from plyfile import PlyData, PlyElement
 from scipy import stats
 from PIL import Image
 import pickle
+from ReconstructionUtils import carla_labels, carla_label_colours, reconstruct3D_ply, isUsefulLabelForReconstruction, NO_LABEL_POINT
 
 # Some internal settings
 #--------------------------------
-IS_DEBUG_ENABLED = False
-DEBUG_FRAMEINDEX_LIMIT = 30 # If should stop after first frame or not...good for fast debugging
-IS_RANGE_COLOR_ShOWING_ENABLED = False # DEbug to see range projections on images plot
-returnsIndicesToUse = [0, 1] # Should we use just first laser return or both ?
-cameraindices_to_use = [0, 1, 2, 3, 4] # The camera indices to project on
-DEBUG_SEGMENTATION_ENABLED = True # If True, will dump input.output of images from segmentation
-NO_CAMERA_INDEX = -1
-NO_LABEL_POINT = 0
 
-Point3DInfoType = collections.namedtuple('Point3DInfo', ['x', 'y', 'z', 'R', 'G', 'B', 'segLabel', 'segR', 'segG', 'segB'])
+# DEbugging . Please disable this production ready code !!!
+IS_VISUAL_DEBUG_ENABLED = False
+STATS_DEBUG_ENABLED = False
+
+# Frame debugging between two values.
+# Set them as None if you want all
+DEBUG_FRAMEINDEX_MIN = 50
+DEBUG_FRAMEINDEX_MAX = 70
+
+IS_RANGE_COLOR_ShOWING_ENABLED = False # DEbug to see range projections on images plot
+returnsIndicesToUse = [0, 1] #[0, 1] # Should we use just first laser return or both ?
+cameraindices_to_use = [0, 1, 2, 3, 4] # The camera indices to project on
+DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE = True
+
+# Spatial octtree partitioning
+VOXELIZATION_FOR_ARTEFACTS_ENABLED = False
+VOXELIZATION_SCALE = 1.0
+VOXELIZATION_SCALE_INV = (1.0/VOXELIZATION_SCALE)
+#NUM_UNITS_FOR_RESCALING = max(10, math.ceil(VOXELIZATION_SCALE))
+KDTREE_FOR_ARTEFACTS_ENABLED = False
+
+IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES = True
+
+DEBUG_SEGMENTATION_ENABLED = False # If True, will show some stats about seg labels
+DEBUG_X_MAX_COORD = 0.0 # TODO: add the entire BBox of the scene..
+NO_CAMERA_INDEX = -1
+
+# How much to extend the dimension of the bounding box of cars and pedestrian in the segmentation process /discarding of lidar points of no interest
+# This is to eliminate most of the artifacts near 3D boxes
+BBOX_EXTENSION_F = 1.3
+
+if KDTREE_FOR_ARTEFACTS_ENABLED:
+    from scipy.spatial import KDTree
+
+# If true, the labels that that other pipeline stages are not interested in, are discarded directly from the outputed ply files
+# For example, the next stages ignore pedestrians and cars. So they will be discarded
+
+#Point3DInfoType = collections.namedtuple('Point3DInfo', ['x', 'y', 'z', 'R', 'G', 'B', 'segLabel', 'segR', 'segG', 'segB'])
+
+class Point3DInfoType:
+    def __init__(self, x, y, z, R, G, B, segLabel, segR, segG, segB):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.R = R
+        self.G = G
+        self.B = B
+        self.segLabel = segLabel
+        self.segR = segR
+        self.segG = segG
+        self.segB = segB
 
 # If true, the output of the point cloud will be in the world space output, relative to the reference point (first pose of the vehicle in world)
 DO_OUTPUT_IN_WORLD_SPACE = True
 
 ade20KToCarla = None # A dictionary containing mapping from [ADE20K label - > CARLA label] for mapping the output segmentation values
+ade20KToNameAndCarlaId = None # A dictionary like above but from ADE20K label -> (ade20KName, carlaId)
+DEBUG_origSegLabel_Stats = {} # A dictionary from label id -> how many of that label exist in the scene, in the original form. this is not persistent between segments !
+DEBUG_outputSegLabel_Stats = {} # Same as above but this contains only the data output stats in the ply file
 #--------------------------------
+
+# An unbounded type of octree (without spatial constraints, keys are x,y,z + util info in the next parameters, currently only label).
+class OctreeUnbounded():
+    def __init__(self):
+        self.D = {}
+
+    def reset(self):
+        self.D = {}
+
+    def addData(self, data):
+        origX, origY, origZ = data[0], data[1], data[2]
+        label = data[3]
+
+        # Convert point to the octree space
+        points_scaled = np.round(np.array(data[0:3]) * VOXELIZATION_SCALE_INV).astype(np.int)
+        x, y, z = points_scaled[0], points_scaled[1], points_scaled[2]
+
+        key = (x, y, z)
+        if self.D.get(key) == None:
+            self.D[key] = []
+        self.D[key].append((origX, origY, origZ, label))
+
+    # Returns a list of tuples (x,y,z,label) for the points that are within radius around centerPoint
+    def getAllNeighboorsInRadius(self, centerPoint, radius):
+        origCenterX, origCenterY, origCenterZ = centerPoint[0], centerPoint[1], centerPoint[2]
+
+        radiusSqr = radius * radius
+        # Convert the center to a cell and get points around the cell that are within the radius
+        outList = []
+
+        center_scaled = (np.array(centerPoint[0:3]) * VOXELIZATION_SCALE_INV).astype(np.int)
+        centerX, centerY, centerZ = center_scaled[0], center_scaled[1], center_scaled[2]
+        numCellsToInvestigateAround = int(math.ceil(radius * VOXELIZATION_SCALE_INV))
+
+        for cellX in range(centerX - numCellsToInvestigateAround, centerX + numCellsToInvestigateAround + 1):
+            for cellY in range(centerY - numCellsToInvestigateAround, centerY + numCellsToInvestigateAround + 1):
+                for cellZ in range(centerZ - numCellsToInvestigateAround, centerZ + numCellsToInvestigateAround + 1):
+                    key = (cellX, cellY, cellZ)
+                    if key in self.D:
+                        for data in self.D[key]:
+                            origX, origY, origZ = data[0], data[1], data[2]
+                            dist = (origCenterX-origX)**2 + (origCenterY-origY)**2 + (origCenterZ-origZ)**2
+                            if dist < radiusSqr:
+                                outList.append(data)
+
+        return outList
+
+    # Given a center point and a radius, return the label mode around that point, and how many of these (count) are
+    def getModeLabelAndCount(self, centerPoint, radius):
+        allPointsInRange = self.getAllNeighboorsInRadius(centerPoint, radius)
+        if (len(allPointsInRange) == 0):
+            return None, None
+
+        pointData = np.array(allPointsInRange).reshape(-1, 4)  # R,G,B, seg label
+        mode, count = stats.mode(pointData[:, 3])
+        return int(mode[0]), int(count[0])
+
+octreeData = OctreeUnbounded()
 
 # Some utility functions
 #---------------------------------
@@ -200,12 +305,14 @@ def save_3d_pointcloud_asSegLabel(points_3d, filename):
         return '\n'.join(header).format(points)
 
     for point in points_3d:
+        """
         assert len(point) == 10, "invalid data input" # xyz rgb label
         for p in point:
             try:
                 n = float(p)
             except ValueError:
                 print ("Problem " + str(point))
+        """
     # points_3d = np.concatenate(
     #     (point_list._array, self._color_array), axis=1)
 
@@ -246,12 +353,14 @@ def save_3d_pointcloud_asSegColored(points_3d, filename):
         return '\n'.join(header).format(points)
 
     for point in points_3d:
+        """
         assert len(point) == 10, "invalid data input" # xyz rgb label
         for p in point:
             try:
                 n = float(p)
             except ValueError:
                 print ("Problem " + str(point))
+        """
     # points_3d = np.concatenate(
     #     (point_list._array, self._color_array), axis=1)
     try:
@@ -291,12 +400,14 @@ def save_3d_pointcloud_asRGB(points_3d, filename):
         return '\n'.join(header).format(points)
 
     for point in points_3d:
+        """
         assert len(point) == 10, "invalid data input"  # xyz rgb label
         for p in point:
             try:
                 n = float(p)
             except ValueError:
                 print("Problem " + str(point))
+        """
     # points_3d = np.concatenate(
     #     (point_list._array, self._color_array), axis=1)
     try:
@@ -325,14 +436,19 @@ def read_3D_pointcloud(filename, file_end='/dense/fused_text.ply'):
 # Aggregates all points given in the output dictionary, for each 3D point cloud will add the R G B in the scene and the segmentation label
 # unprojectedPoints is True if the points have no label or camera projection image
 def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMERA_INDEX, rgbData = None, segData = None):
+    global DEBUG_origSegLabel_Stats
+    global DEBUG_outputSegLabel_Stats
+
     for point in points3D_and_cp:
-        x,y,z = point[0:3]
+        x, y, z = point[0:3]
         key = (x, y, z)
 
+        # This is the default: the point has no segmentation label
         camX, camY = None, None
         R, G, B = 0, 0, 0
         label = NO_LABEL_POINT
 
+        # Check to see if the point has a camera projection and we can find out its segmentation label
         if imageCameraIndex != NO_CAMERA_INDEX:
             rgbCamera = rgbData[imageCameraIndex]
             segCamera = segData[imageCameraIndex]
@@ -341,49 +457,156 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
 
 #            try:
             R, G, B = rgbCamera[camY, camX, :]
-            label = int(segCamera[camY, camX]) + 1 # WHY DO WE ADD + 1 here ?? BECAUSE ADE20K returns in range [0,149] while naming and all dictionaries are in [1,150]
+            origLabel = int(segCamera[camY, camX]) + 1 # WHY DO WE ADD + 1 here ?? BECAUSE ADE20K returns in range [0,149] while naming and all dictionaries are in [1,150]
 
-            label = ade20KToCarla[label] # Move to CARLA segmentation values
+            if STATS_DEBUG_ENABLED:
+                if DEBUG_origSegLabel_Stats.get(origLabel) == None:
+                    DEBUG_origSegLabel_Stats[origLabel] = 0
+                DEBUG_origSegLabel_Stats[origLabel] += 1
+
+            label = ade20KToCarla[origLabel] # Move to CARLA segmentation values
+            if DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE == True and (not isUsefulLabelForReconstruction(label)):
+                continue
+
+            if STATS_DEBUG_ENABLED:
+                if DEBUG_outputSegLabel_Stats.get(label) == None:
+                    DEBUG_outputSegLabel_Stats[label] = 0
+                DEBUG_outputSegLabel_Stats[label] += 1
+
+            if key not in outPlyDataPoints:
+                outPlyDataPoints[key] = []
+
+            outPlyDataPoints[key].append((R, G, B, label))
+
 #            except:
 #                print("Exception")
 #                pass
 
-        if key not in outPlyDataPoints:
-            outPlyDataPoints[key] = []
-
-        outPlyDataPoints[key].append((R, G, B, label))
-
 # Takes the output dictionary build as above by ProcessPoints method and returns a flattened list
 def convertDictPointsToList(inPlyDataPoints):
+    global DEBUG_X_MAX_COORD
     outPlyDataPoints = []
-
+    octreeData.reset()
     stat_numPointsWhereVotesAreNeeded = 0 # just for some stat
+
+    kdTreePoints = []
+
+    #print("Converting final list of points..")
+
+    # Step 1: Obtain a list with all points and labels
     for keyPoint3D, pointData in inPlyDataPoints.items():
         x, y, z = keyPoint3D[0], keyPoint3D[1], keyPoint3D[2]
 
         # Select the mode label from the point list
         pointData = np.array(pointData).reshape(-1, 4) # R,G,B, seg label
         mode, count = stats.mode(pointData[:, 3])
+
+        # If the first votes is unlabelled, then chose the next if any that is not ignored
         votedLabel = mode[0]
+        if DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE == True:
+            if isUsefulLabelForReconstruction(votedLabel) == False:
+                for mi in range(len(mode)):
+                    if isUsefulLabelForReconstruction(mode[mi]) == True:
+                        votedLabel = mode[mi]
+                        break
 
         #COMMENT THIS - Debug to see multiple points on the same coordinate:
         if pointData.shape[0] > 1:
             #print("P: ({:.2f} {:.2f} {:.2f}) {}".format(x, y, z, pointData))
             stat_numPointsWhereVotesAreNeeded += 1
-
         # end debug
 
         votedRGB = None
         # Take first RGB corresponding to the mode
         for dataIndex in range(pointData.shape[0]):
             if pointData[dataIndex, 3] == votedLabel:
-                votedRGB = (x, y, z, pointData[dataIndex, 0], pointData[dataIndex, 1], pointData[dataIndex, 2])
+                votedRGB = (pointData[dataIndex, 0], pointData[dataIndex, 1], pointData[dataIndex, 2])
                 break
 
-        segColor = carla_label_colours[votedLabel]
-        outPlyDataPoints.append(Point3DInfoType(*votedRGB, votedLabel, *segColor))
+        if votedRGB != None:
+            segColor = carla_label_colours[votedLabel]
+            outPlyDataPoints.append(Point3DInfoType(x, y, z, *votedRGB, votedLabel, *segColor))
 
-    print(f"Needed votes from {stat_numPointsWhereVotesAreNeeded} out of {len(inPlyDataPoints)}")
+            if VOXELIZATION_FOR_ARTEFACTS_ENABLED == True:
+                octreeData.addData((x, y, z, votedLabel))
+            elif KDTREE_FOR_ARTEFACTS_ENABLED == True:
+                kdTreePoints.append((x,y,z))
+
+            DEBUG_X_MAX_COORD = max(x, DEBUG_X_MAX_COORD)
+
+    # Step 2: Iterate over all points and take the mode of the labels around a radius
+    MAX_CLOSEST_POINT_TO_EVALUATE = 30
+    MAX_DISTANCE = 1.0 # meters
+    MIN_COUNT_TO_VALIDATE_NEW_LABEL = 5
+
+    if KDTREE_FOR_ARTEFACTS_ENABLED:
+        print("Starting the mode algorithm...")
+        kdTreePoints = np.array(kdTreePoints)
+        kdTree = KDTree(kdTreePoints)
+
+        for index, point3DData in enumerate(outPlyDataPoints):
+            if index % 10000 == 0:
+                print(f"mode at {index}/{len(outPlyDataPoints)}..")
+            #if index >= 10000:
+            #    break
+
+            # DEbug interesting point
+            x, y, z = point3DData.x, point3DData.y, point3DData.z
+            if not (x > 23.0 and x < 27.0 and y > 9.5 and y < 11):
+                continue
+            if not (point3DData.segLabel == 10 or point3DData.segLabel == 4):
+                continue
+
+            queryPoint = (point3DData.x, point3DData.y, point3DData.z)
+            # dist, indices = kdTree.query(queryPoint, k=MAX_CLOSEST_POINT_TO_EVALUATE, distance_upper_bound=MAX_DISTANCE)
+            indices = kdTree.query_ball_point(queryPoint, 1.5)
+            numTotalPoints = len(outPlyDataPoints)
+            pointsAroundData = [outPlyDataPoints[index] for index in indices if index < numTotalPoints]
+            labelsVoted = np.zeros(NUM_LABELS_CARLA + 1)
+            for pAround in pointsAroundData:
+                labelsVoted[pAround.segLabel] += 1
+
+            mostVotedLabel = np.argmax(labelsVoted)
+            # end debug
+
+            # Get the mode label around this point
+            queryPoint = (point3DData.x, point3DData.y, point3DData.z)
+            dist, indices = kdTree.query(queryPoint, k=MAX_CLOSEST_POINT_TO_EVALUATE, distance_upper_bound=MAX_DISTANCE)
+            indices = kdTree.query_ball_point(queryPoint, MAX_DISTANCE)
+
+            numTotalPoints = len(outPlyDataPoints)
+            pointsAroundData = [outPlyDataPoints[index] for index in indices if index < numTotalPoints]
+            labelsVoted = np.zeros(NUM_LABELS_CARLA + 1)
+            for pAround in pointsAroundData:
+                labelsVoted[pAround.segLabel] += 1
+
+            mostVotedLabel = np.argmax(labelsVoted)
+            if mostVotedLabel != point3DData.segLabel and mostVotedLabel > MIN_COUNT_TO_VALIDATE_NEW_LABEL:
+                outPlyDataPoints[index].segLabel = mostVotedLabel
+
+    elif VOXELIZATION_FOR_ARTEFACTS_ENABLED:
+        print("Starting the mode algorithm...")
+        for index, point3DData in enumerate(outPlyDataPoints):
+            if index % 10000 == 0:
+                print(f"mode at {index}/{len(outPlyDataPoints)}..")
+            #if index >= 10000:
+            #    break
+
+            # Get the mode label around this point
+            modeLabel, count = octreeData.getModeLabelAndCount((point3DData.x, point3DData.y, point3DData.z), MAX_DISTANCE)
+            if modeLabel != None and count != None \
+                    and modeLabel != point3DData.segLabel and count > MIN_COUNT_TO_VALIDATE_NEW_LABEL:
+
+                # Override the point
+                outPlyDataPoints[index].segLabel = modeLabel
+                """
+                outPlyDataPoints[index] = Point3DInfoType(x=point3DData.x, y=point3DData.y, z=point3DData.z,
+                                                          R=point3DData.R, G=point3DData.G, B=point3DData.B,
+                                                          segLabel=modeLabel,
+                                                          segR=point3DData.segR, segG=point3DData.segG, segB=point3DData.segB)
+                """
+
+    #print(f"Needed votes from {stat_numPointsWhereVotesAreNeeded} out of {len(inPlyDataPoints)}")
     return outPlyDataPoints
 #-----------------------------------------------
 
@@ -391,7 +614,7 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
     # Get the range images, camera projects from the frame data
     (range_images, camera_projections, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
 
-    if IS_DEBUG_ENABLED:
+    if IS_VISUAL_DEBUG_ENABLED:
         # 2. Print some cameras images in the data
         plt.figure(figsize=(25, 20))
         for index, image in enumerate(frame.images):
@@ -436,6 +659,22 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
     cp_points_byreturn  = [cp_points_all_ri0, cp_points_all_ri2]
 
 
+    if IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES:
+        lidarLabels = frame.laser_labels
+        allBoxes = np.zeros((len(lidarLabels), 7))
+        for entityIndex, label in enumerate(lidarLabels):
+            box = label.box
+            allBoxes[entityIndex][:] = [box.center_x, box.center_y, box.center_z,
+                                        box.length * BBOX_EXTENSION_F, box.width * BBOX_EXTENSION_F, box.height * BBOX_EXTENSION_F, box.heading]
+
+        for returnIndex in returnsIndicesToUse:
+            points = points_byreturn[returnIndex]
+            mask_inBoxOfPedestrianOrCar = np.logical_not(box_utils.is_within_any_box_3d(points, allBoxes))
+
+            points_byreturn[returnIndex] = points_byreturn[returnIndex][mask_inBoxOfPedestrianOrCar]
+            cp_points_byreturn[returnIndex] = cp_points_byreturn[returnIndex][mask_inBoxOfPedestrianOrCar]
+
+
     # Last step: convert all points from vehicle frame space to world space - relative to the first vehicle frame pose
     # Get the vehicle transform to world in this frame
     if DO_OUTPUT_IN_WORLD_SPACE is True:
@@ -447,7 +686,6 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
         worldToReferenceRotation    = worldToReferencePointTransform[0:3, 0:3]
         worldToReferenceTranslation = worldToReferencePointTransform[0:3, 3]
 
-        #
         for returnIndex, allPoints in enumerate(points_byreturn):
             # Transform all points to world coordinates first
             allPoints   = tf.einsum('jk,ik->ij', vehicleToWorldRotation, allPoints) + tf.expand_dims(vehicleToWorldTranslation, axis=-2)
@@ -462,7 +700,6 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
 
 
 def doPointCloudReconstruction(recordSegmentFiles):
-
     # These are the transformation from world frame to the reference vehicle frame (first pose of the vehicle in the world)
     worldToReferencePointTransform = None
 
@@ -473,9 +710,19 @@ def doPointCloudReconstruction(recordSegmentFiles):
         segmentName = extractSegmentNameFromPath(segmentPath)
         segmentedDataPath = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUT_LABELS_SEGFOLDER)
 
+        # Reset some things that shouldn't be persistent between episodes
+        global DEBUG_origSegLabel_Stats
+        DEBUG_origSegLabel_Stats = {}
+
         # 1. Iterate over frame by frame of a segment
         dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
         for frameIndex, data in enumerate(dataset):
+            if frameIndex != 0: # We need first frame to get the camera reference point
+                if DEBUG_FRAMEINDEX_MIN is not None and frameIndex < DEBUG_FRAMEINDEX_MIN:
+                    continue
+                if DEBUG_FRAMEINDEX_MAX is not None and frameIndex > DEBUG_FRAMEINDEX_MAX:
+                    break
+
             print(f"Extracting point cloud from frame {frameIndex}...")
             # Step 1: Read the frame in bytes
             # -------------------------------------------
@@ -489,7 +736,6 @@ def doPointCloudReconstruction(recordSegmentFiles):
             if frameIndex == 0:
                 worldToReferencePointTransform  = np.linalg.inv(frame_thisPose)
             # -------------------------------------------
-
 
             # Step 2: Process the frame and get the 3d lidar points and camera projected points from the frame, for each return
             # -------------------------------------------
@@ -514,12 +760,12 @@ def doPointCloudReconstruction(recordSegmentFiles):
             for returnIndex in returnsIndicesToUse:
                 # Put together [projected camera data, 3D points] on the same row, convert to tensor
                 cp_points_all_concat = np.concatenate([cp_points_byreturn[returnIndex], points_byreturn[returnIndex]],
-                                                      axis=-1)
+                                                        axis=-1)
                 cp_points_all_concat_tensor = tf.constant(cp_points_all_concat)
 
                 # Compute the distance between lidar points and vehicle frame origin for each 3d point
                 distances_all_tensor = tf.norm(points_byreturn[returnIndex], axis=-1,
-                                               keepdims=True) if IS_RANGE_COLOR_ShOWING_ENABLED is True else None
+                                                 keepdims=True) if IS_RANGE_COLOR_ShOWING_ENABLED is True else None
 
                 # Create a tensor with all projected [projected camera data] and one with 3d points
                 cp_points_all_tensor = tf.constant(cp_points_byreturn[returnIndex], dtype=tf.int32)
@@ -533,17 +779,17 @@ def doPointCloudReconstruction(recordSegmentFiles):
 
                         # A mask with True where the camera projection points where on this image index
                         mask = tf.equal(cp_points_all_tensor[..., 0 if imageProjIndex == 0 else 3],
-                                        images[image_index].name)
+                                          images[image_index].name)
 
                         # Now select only camera projection data and 3D points in vehicle frame associated with this camera index
                         cp_points_all_tensor_camera = tf.cast(tf.gather_nd(cp_points_all_tensor, tf.where(mask)),
-                                                              dtype=tf.float32)
+                                                                dtype=tf.float32)
                         points_3D_all_tensor_camera = tf.cast(tf.gather_nd(points_3D_all_tensor, tf.where(mask)),
-                                                              dtype=tf.float32)
+                                                                dtype=tf.float32)
 
                         # Select only the cp points associated with the iterated camera projection index
                         cp_points_all_tensor_camera_byProjIndex = cp_points_all_tensor_camera[...,1:3] if imageProjIndex == 0 \
-                                                                    else cp_points_all_tensor_camera[..., 4:6]
+                                                                      else cp_points_all_tensor_camera[..., 4:6]
 
                         # Associate on each row one 3D point with its corresponding image camera projection (this index being iterated on)
                         # We have now on each row:  [(x,y,z, camX, camY)]
@@ -559,13 +805,13 @@ def doPointCloudReconstruction(recordSegmentFiles):
                             # Associate on each row, with each x,y in camera space, the distance from vehicle frame to the 3D point lidar
                             projected_points_all_from_raw_data = tf.concat(
                                 [cp_points_all_tensor_camera[..., 1:3],
-                                 distances_all_tensor_camera] if imageProjIndex == 0 else \
+                                distances_all_tensor_camera] if imageProjIndex == 0 else \
                                     [cp_points_all_tensor_camera[..., 4:6], distances_all_tensor_camera],
                                 axis=-1).numpy()
 
                             plot_points_on_image(projected_points_all_from_raw_data, images[image_index], rgba, point_size=5.0)
 
-                # Add all point cloud points which are not not labeled (not found in a projected camera image)
+                  # Add all point cloud points which are not not labeled (not found in a projected camera image)
                 mask = tf.equal(cp_points_all_tensor[..., 0], 0)  # 0 is the index for unprojected camera point, on first cp index
                 points_3D_all_unprojected_tensor = tf.cast(tf.gather_nd(points_3D_all_tensor, tf.where(mask)), dtype=tf.float32)
                 processPoints(points_3D_all_unprojected_tensor.numpy(), plyDataPoints, imageCameraIndex=NO_CAMERA_INDEX)
@@ -581,22 +827,52 @@ def doPointCloudReconstruction(recordSegmentFiles):
             save_3d_pointcloud_asSegLabel(plyDataPointsFlattened, outputFramePath_seg)
             save_3d_pointcloud_asSegColored(plyDataPointsFlattened, outputFramePath_segColored)
 
-            if DEBUG_FRAMEINDEX_LIMIT is not None and DEBUG_FRAMEINDEX_LIMIT <= frameIndex:
-                break
+            onFrameProcessedEnd()
             # -------------------------------------------
 
+def onFrameProcessedEnd():
+      # Show some stats..
+      # Sort by value first
+      if STATS_DEBUG_ENABLED == True:
+          print("### Showing stats")
+          print(f"Max X coord: ", DEBUG_X_MAX_COORD)
+          statsDictToShow = {'orig': DEBUG_origSegLabel_Stats, 'output' : DEBUG_outputSegLabel_Stats}
+
+          for statName, statValue in statsDictToShow.items():
+              print("===== TYPE ", statName)
+              statValue = sorted(statValue.items(), key=lambda x: x[1], reverse=True)
+              totalLabels = 0
+              for label, value in statValue:
+                  totalLabels += value
+
+              for label, value in statValue:
+                  percent = value / totalLabels
+
+                  if statName == 'orig':
+                      carlaId = ade20KToNameAndCarlaId[label][1]
+                      ade20KName = ade20KToNameAndCarlaId[label][0]
+                      print(f"Label {label}-{ade20KName}-carlaId{carlaId}: {percent*100.0}%")
+                  elif statName == 'output':
+                      print(f"Label Carla - {label}-{percent*100.0}%")
+                  else:
+                      assert False, "Ended processing"
+
 def setupGlobals():
-    global ade20KToCarla
-    import numpy as np
-    import pandas as pd
-    labelsMapping = pd.read_csv(ADE20K_TO_CARLA_MAPPING_CSV)
-    # labelsMapping.head()
-    ADE20K_labels = np.array(labelsMapping['Idx'])
-    CARLA_labels = np.array(labelsMapping['CARLA_ID'])
-    ade20KToCarla = {ADE20K_labels[k]: CARLA_labels[k] for k in range(len(ADE20K_labels))}
-    ade20KToCarla[0] = 0
+  global ade20KToCarla
+  global ade20KToNameAndCarlaId
+  import numpy as np
+  import pandas as pd
+  labelsMapping = pd.read_csv(ADE20K_TO_CARLA_MAPPING_CSV)
+  # labelsMapping.head()
+  ADE20K_labels = np.array(labelsMapping['Idx'])
+  ADE20K_labelNames = np.array(labelsMapping['Name'])
+  CARLA_labels = np.array(labelsMapping['CARLA_ID'])
+  ade20KToCarla = {ADE20K_labels[k]: CARLA_labels[k] for k in range(len(ADE20K_labels))}
+  ade20KToCarla[0] = 0
+  ade20KToNameAndCarlaId = {ADE20K_labels[k]: (ADE20K_labelNames[k], CARLA_labels[k]) for k in range(len(ADE20K_labels))}
+
 
 if __name__ == "__main__":
-    setupGlobals()
-    doPointCloudReconstruction(FILENAME_SAMPLE)
+  setupGlobals()
+  doPointCloudReconstruction(FILENAME_SAMPLE)
 

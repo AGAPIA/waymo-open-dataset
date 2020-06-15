@@ -1,6 +1,8 @@
 # A set of utils for processing Waymo library,common for all pipeline stages
 import os
 import re
+import sys
+sys.path.append("/home/ciprian/Work/RLAgent/commonUtils") #os.path.join(os.path.dirname(__file__), "lib"))
 
 # Where to write the output of scenes filetering tool
 OUTPUT_SCENES_FILTERING_PATH = r'scenes.csv'
@@ -26,35 +28,6 @@ ADE20K_TO_CARLA_MAPPING_CSV = os.path.join("semanticSegmentation", "data", "obje
 # 11 	Walls		Label(  'wall'                 , 12 ,        3 , 'construction'    , 2       , False        , False        , (102,102,156) ),
 # 12 	TrafficSigns	Label(  'traffic sign'         , 20 ,        7 , 'object'          , 3       , False        , False        , (220,220,  0) ),
 
-carla_label_colours=[(0, 0, 0),        #0
-                    ( 70, 70, 70) ,     #1
-                    (190,153,153) ,     #2
-                    (  0,  0,  0),      #3
-                    (220, 20, 60),      #4
-                    (153,153,153),      #5
-                    (128, 64,128),      #6
-                    (128, 64,128),      #7
-                    (244, 35,232),      #8,
-                    (107,142, 35),      #9,
-                    (  0, 0, 142),      #10
-                    (102,102,156),      #11
-                    (220,220,  0),      #12
-                     ]
-
-carla_labels=['unlabeled',      #0
-                'building' ,    #1
-                'fence' ,       #2
-                'static',       #3
-                'person',       #4
-                'pole',         #5
-                'road',         #6
-                'road',         #7
-                'sidewalk',     #8
-                'vegetation',   #9
-                'car',          #10
-                'wall',         #11
-                'traffic sign', #12
-              ]
 
 ####################
 

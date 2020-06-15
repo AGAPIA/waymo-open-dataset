@@ -25,6 +25,9 @@ if __name__ == "__main__":
             self.framesIndicesCaptured = list(np.arange(0, min(199,
                                                                LIMIT_FRAME_NUMBER)))  # TODO: fix number of frames correctly by reading metadata !
             self.LIMIT_FRAME_NUMBER = LIMIT_FRAME_NUMBER
+            # How many frames modulo to skip for reconstruction (if needed
+            self.frameSkip = 1
+            self.numInitialFramesToIgnore = 0 # How many frames in the beginning of the scene to ignore
 
 
     options = DatasetOptions()
