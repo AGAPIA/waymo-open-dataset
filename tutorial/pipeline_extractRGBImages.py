@@ -51,34 +51,33 @@ def saveImagesAsSegmentationInput(allRGBImagesDict, destFolder):
             image.save(imagePath)
 
 # Given a list of recoded segments from WAYMO, extract and save the images to semanticSegmentation/INPUT folder
-def do_extraction(recordSegmentFiles):
-    for filePath in recordSegmentFiles:
-        segmentName = extractSegmentNameFromPath(filePath)
-        assert os.path.exists(filePath), f'The file you specified {filePath} doesn\'t exist !'
+def do_RGBExtraction(segmentPath):
+    segmentName = extractSegmentNameFromPath(segmentPath)
+    assert os.path.exists(segmentPath), f'The file you specified {segmentPath} doesn\'t exist !'
 
-        # 1. Iterate over frame by frame of a segment
-        dataset = tf.data.TFRecordDataset(filePath, compression_type='')
+    # 1. Iterate over frame by frame of a segment
+    dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
 
-        numFrames = 0
-        for index, data in enumerate(dataset):
-            numFrames += 1
-        print(f"Num frames in {segmentName}: ", numFrames)
+    numFrames = 0
+    for index, data in enumerate(dataset):
+        numFrames += 1
+    print(f"Num frames in {segmentName}: ", numFrames)
 
-        allRGBImagesDict = {}
-        for index, data in enumerate(dataset):
-            print(f"Parsing frame {index}/{numFrames}")
-            # Read the frame in bytes
-            frame = open_dataset.Frame()
-            frame.ParseFromString(bytearray(data.numpy()))
+    allRGBImagesDict = {}
+    for index, data in enumerate(dataset):
+        print(f"Parsing frame {index}/{numFrames}")
+        # Read the frame in bytes
+        frame = open_dataset.Frame()
+        frame.ParseFromString(bytearray(data.numpy()))
 
-            # Gather and decode all RGB images from this frame to the global store
-            segInputFolder = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName, SEG_INPUT_IMAGES_RGBFOLDER)
-            gatherImagesFromFrame(frame, index, allRGBImagesDict, segInputFolder)
+        # Gather and decode all RGB images from this frame to the global store
+        segInputFolder = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName, SEG_INPUT_IMAGES_RGBFOLDER)
+        gatherImagesFromFrame(frame, index, allRGBImagesDict, segInputFolder)
 
-            saveImagesAsSegmentationInput(allRGBImagesDict, segInputFolder)
+        saveImagesAsSegmentationInput(allRGBImagesDict, segInputFolder)
 
 # Use do_extraction from exterior and let main just for testing purposes
 # Or refactor the code with argparse
 if __name__ == "__main__":  # 'frames']
-    do_extraction(FILENAME_SAMPLE)
+    do_RGBExtraction(FILENAME_SAMPLE[0])
 

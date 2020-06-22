@@ -2,6 +2,12 @@
 # Save two files for each frame: frame_number.ply and frame_number_seg.ply.
 # The former contains the poincloud with RGB, the second with segmentation only (in CARLA dataset space !!!)
 
+
+# TODO:
+# How to debug easily: processPoints - go to this function and find a commented code to subtract only a part of the screen or certain labels categories
+# Use DEBUG_FRAMEINDEX_MIN and DEBUG_FRAMEINDEX_MAX to reconstruct only between the specified frames.
+# search for stats and enable them to show several things..
+
 import os
 import tensorflow.compat.v1 as tf
 import math
@@ -23,7 +29,7 @@ from plyfile import PlyData, PlyElement
 from scipy import stats
 from PIL import Image
 import pickle
-from ReconstructionUtils import carla_labels, carla_label_colours, reconstruct3D_ply, isUsefulLabelForReconstruction, NO_LABEL_POINT
+from ReconstructionUtils import carla_labels, carla_label_colours, reconstruct3D_ply, isUsefulLabelForReconstruction, NO_LABEL_POINT, SEGLABEL_PEDESTRIAN, NUM_LABELS_CARLA
 
 # Some internal settings
 #--------------------------------
@@ -34,13 +40,11 @@ STATS_DEBUG_ENABLED = False
 
 # Frame debugging between two values.
 # Set them as None if you want all
-DEBUG_FRAMEINDEX_MIN = 50
-DEBUG_FRAMEINDEX_MAX = 70
 
 IS_RANGE_COLOR_ShOWING_ENABLED = False # DEbug to see range projections on images plot
 returnsIndicesToUse = [0, 1] #[0, 1] # Should we use just first laser return or both ?
 cameraindices_to_use = [0, 1, 2, 3, 4] # The camera indices to project on
-DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE = True
+DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE = False
 
 # Spatial octtree partitioning
 VOXELIZATION_FOR_ARTEFACTS_ENABLED = False
@@ -54,10 +58,11 @@ IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES = True
 DEBUG_SEGMENTATION_ENABLED = False # If True, will show some stats about seg labels
 DEBUG_X_MAX_COORD = 0.0 # TODO: add the entire BBox of the scene..
 NO_CAMERA_INDEX = -1
+DEBUG_NumPedestriansPoints_Stats = 0
 
 # How much to extend the dimension of the bounding box of cars and pedestrian in the segmentation process /discarding of lidar points of no interest
 # This is to eliminate most of the artifacts near 3D boxes
-BBOX_EXTENSION_F = 1.3
+BBOX_EXTENSION_F = 1.25
 
 if KDTREE_FOR_ARTEFACTS_ENABLED:
     from scipy.spatial import KDTree
@@ -288,6 +293,7 @@ def readSEGDataForFrame(frameIndex, segmentName):
 
 def save_3d_pointcloud_asSegLabel(points_3d, filename):
     """Save this point-cloud to disk as PLY format."""
+    global DEBUG_NumPedestriansPoints_Stats
 
     def construct_ply_header():
         """Generates a PLY header given a total number of 3D points and
@@ -313,6 +319,9 @@ def save_3d_pointcloud_asSegLabel(points_3d, filename):
             except ValueError:
                 print ("Problem " + str(point))
         """
+        if STATS_DEBUG_ENABLED:
+            DEBUG_NumPedestriansPoints_Stats += 1 if point.segLabel == SEGLABEL_PEDESTRIAN else 0
+
     # points_3d = np.concatenate(
     #     (point_list._array, self._color_array), axis=1)
 
@@ -468,6 +477,14 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
             if DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE == True and (not isUsefulLabelForReconstruction(label)):
                 continue
 
+            """
+            # Debug labels positions etc..custom things to save to a ply
+            if label != SEGLABEL_PEDESTRIAN and label != 10: # and label != 7:
+                continue
+            if not( 24 < x and x < 30 and -11 < y and y < -9.8):
+                continue
+            """
+
             if STATS_DEBUG_ENABLED:
                 if DEBUG_outputSegLabel_Stats.get(label) == None:
                     DEBUG_outputSegLabel_Stats[label] = 0
@@ -511,10 +528,11 @@ def convertDictPointsToList(inPlyDataPoints):
                         break
 
         #COMMENT THIS - Debug to see multiple points on the same coordinate:
-        if pointData.shape[0] > 1:
-            #print("P: ({:.2f} {:.2f} {:.2f}) {}".format(x, y, z, pointData))
-            stat_numPointsWhereVotesAreNeeded += 1
-        # end debug
+        if STATS_DEBUG_ENABLED:
+            if pointData.shape[0] > 1 and pointData.shape[0] > count[0]:
+                #print("P: ({:.2f} {:.2f} {:.2f}) {}".format(x, y, z, pointData))
+                stat_numPointsWhereVotesAreNeeded += 1
+            # end debug
 
         votedRGB = None
         # Take first RGB corresponding to the mode
@@ -535,54 +553,51 @@ def convertDictPointsToList(inPlyDataPoints):
             DEBUG_X_MAX_COORD = max(x, DEBUG_X_MAX_COORD)
 
     # Step 2: Iterate over all points and take the mode of the labels around a radius
-    MAX_CLOSEST_POINT_TO_EVALUATE = 30
-    MAX_DISTANCE = 1.0 # meters
-    MIN_COUNT_TO_VALIDATE_NEW_LABEL = 5
+    MAX_CLOSEST_POINT_TO_EVALUATE = 10
+    MAX_DISTANCE = 0.6 # meters
+    MIN_COUNT_TO_VALIDATE_NEW_LABEL = 3
 
     if KDTREE_FOR_ARTEFACTS_ENABLED:
         print("Starting the mode algorithm...")
         kdTreePoints = np.array(kdTreePoints)
-        kdTree = KDTree(kdTreePoints)
+        if len(kdTreePoints) > 0:
+            kdTree = KDTree(kdTreePoints)
 
-        for index, point3DData in enumerate(outPlyDataPoints):
-            if index % 10000 == 0:
-                print(f"mode at {index}/{len(outPlyDataPoints)}..")
-            #if index >= 10000:
-            #    break
+            for index, point3DData in enumerate(outPlyDataPoints):
+                if index % 10000 == 0:
+                    print(f"mode at {index}/{len(outPlyDataPoints)}..")
 
-            # DEbug interesting point
-            x, y, z = point3DData.x, point3DData.y, point3DData.z
-            if not (x > 23.0 and x < 27.0 and y > 9.5 and y < 11):
-                continue
-            if not (point3DData.segLabel == 10 or point3DData.segLabel == 4):
-                continue
+                #if index >= 10000:
+                #    break
+                """
+                queryPoint = (point3DData.x, point3DData.y, point3DData.z)
+                # dist, indices = kdTree.query(queryPoint, k=MAX_CLOSEST_POINT_TO_EVALUATE, distance_upper_bound=MAX_DISTANCE)
+                indices = kdTree.query_ball_point(queryPoint, 1.5)
+                numTotalPoints = len(outPlyDataPoints)
+                pointsAroundData = [outPlyDataPoints[index] for index in indices if index < numTotalPoints]
+                labelsVoted = np.zeros(NUM_LABELS_CARLA + 1)
+                for pAround in pointsAroundData:
+                    labelsVoted[pAround.segLabel] += 1
 
-            queryPoint = (point3DData.x, point3DData.y, point3DData.z)
-            # dist, indices = kdTree.query(queryPoint, k=MAX_CLOSEST_POINT_TO_EVALUATE, distance_upper_bound=MAX_DISTANCE)
-            indices = kdTree.query_ball_point(queryPoint, 1.5)
-            numTotalPoints = len(outPlyDataPoints)
-            pointsAroundData = [outPlyDataPoints[index] for index in indices if index < numTotalPoints]
-            labelsVoted = np.zeros(NUM_LABELS_CARLA + 1)
-            for pAround in pointsAroundData:
-                labelsVoted[pAround.segLabel] += 1
+                mostVotedLabel = np.argmax(labelsVoted)
+                # end debug
+                """
 
-            mostVotedLabel = np.argmax(labelsVoted)
-            # end debug
+                # Get the mode label around this point
+                queryPoint = (point3DData.x, point3DData.y, point3DData.z)
+                dist, indices = kdTree.query(queryPoint, k=MAX_CLOSEST_POINT_TO_EVALUATE, distance_upper_bound=MAX_DISTANCE)
+                #indices = kdTree.query_ball_point(queryPoint, MAX_DISTANCE)
 
-            # Get the mode label around this point
-            queryPoint = (point3DData.x, point3DData.y, point3DData.z)
-            dist, indices = kdTree.query(queryPoint, k=MAX_CLOSEST_POINT_TO_EVALUATE, distance_upper_bound=MAX_DISTANCE)
-            indices = kdTree.query_ball_point(queryPoint, MAX_DISTANCE)
+                numTotalPoints = len(outPlyDataPoints)
+                pointsAroundData = [outPlyDataPoints[index] for index in indices if index < numTotalPoints]
+                labelsVoted = np.zeros(NUM_LABELS_CARLA + 1)
+                for pAround in pointsAroundData:
+                    labelsVoted[pAround.segLabel] += 1
 
-            numTotalPoints = len(outPlyDataPoints)
-            pointsAroundData = [outPlyDataPoints[index] for index in indices if index < numTotalPoints]
-            labelsVoted = np.zeros(NUM_LABELS_CARLA + 1)
-            for pAround in pointsAroundData:
-                labelsVoted[pAround.segLabel] += 1
-
-            mostVotedLabel = np.argmax(labelsVoted)
-            if mostVotedLabel != point3DData.segLabel and mostVotedLabel > MIN_COUNT_TO_VALIDATE_NEW_LABEL:
-                outPlyDataPoints[index].segLabel = mostVotedLabel
+                mostVotedLabel = np.argmax(labelsVoted)
+                if mostVotedLabel != point3DData.segLabel and labelsVoted[mostVotedLabel] > MIN_COUNT_TO_VALIDATE_NEW_LABEL:
+                    outPlyDataPoints[index].segLabel = mostVotedLabel
+                    outPlyDataPoints[index].segR, outPlyDataPoints[index].segG, outPlyDataPoints[index].segB  = carla_label_colours[mostVotedLabel]
 
     elif VOXELIZATION_FOR_ARTEFACTS_ENABLED:
         print("Starting the mode algorithm...")
@@ -699,136 +714,135 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
     return points_byreturn, cp_points_byreturn
 
 
-def doPointCloudReconstruction(recordSegmentFiles):
+def doPointCloudReconstruction(segmentPath, FRAMEINDEX_MIN, FRAMEINDEX_MAX):
+    setupGlobals()
     # These are the transformation from world frame to the reference vehicle frame (first pose of the vehicle in the world)
     worldToReferencePointTransform = None
 
-    # Iterate over all segmentation names sent
-    for segmentPath in recordSegmentFiles:
-        assert os.path.exists(segmentPath), (f'The file you specified {segmentPath} doesn\'t exist !')
+    assert os.path.exists(segmentPath), (f'The file you specified {segmentPath} doesn\'t exist !')
 
-        segmentName = extractSegmentNameFromPath(segmentPath)
-        segmentedDataPath = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUT_LABELS_SEGFOLDER)
+    segmentName = extractSegmentNameFromPath(segmentPath)
+    segmentedDataPath = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUT_LABELS_SEGFOLDER)
 
-        # Reset some things that shouldn't be persistent between episodes
-        global DEBUG_origSegLabel_Stats
-        DEBUG_origSegLabel_Stats = {}
+    # Reset some things that shouldn't be persistent between episodes
+    global DEBUG_origSegLabel_Stats
+    DEBUG_origSegLabel_Stats = {}
 
-        # 1. Iterate over frame by frame of a segment
-        dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
-        for frameIndex, data in enumerate(dataset):
-            if frameIndex != 0: # We need first frame to get the camera reference point
-                if DEBUG_FRAMEINDEX_MIN is not None and frameIndex < DEBUG_FRAMEINDEX_MIN:
-                    continue
-                if DEBUG_FRAMEINDEX_MAX is not None and frameIndex > DEBUG_FRAMEINDEX_MAX:
-                    break
+    # 1. Iterate over frame by frame of a segment
+    dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
+    for frameIndex, data in enumerate(dataset):
+        if frameIndex != 0: # We need first frame to get the camera reference point
+            if FRAMEINDEX_MIN is not None and frameIndex < FRAMEINDEX_MIN:
+                continue
+            if FRAMEINDEX_MAX is not None and frameIndex > FRAMEINDEX_MAX:
+                break
 
-            print(f"Extracting point cloud from frame {frameIndex}...")
-            # Step 1: Read the frame in bytes
-            # -------------------------------------------
-            frame = open_dataset.Frame()
-            frame.ParseFromString(bytearray(data.numpy()))
+        print(f"Extracting point cloud from frame {frameIndex}...")
+        # Step 1: Read the frame in bytes
+        # -------------------------------------------
+        frame = open_dataset.Frame()
+        frame.ParseFromString(bytearray(data.numpy()))
 
-            # All point cloud data is relative to the car with sensors attached
-            # We can transform to world positions using frame.pose.transform.
-            # But to get coordinates back to the reference frame - WHICH IS THE INITIAL POSITION OF THE CAR - we use the below inverse matrix
-            frame_thisPose = np.reshape(np.array(frame.pose.transform).astype(np.float32), [4, 4])
-            if frameIndex == 0:
-                worldToReferencePointTransform  = np.linalg.inv(frame_thisPose)
-            # -------------------------------------------
+        # All point cloud data is relative to the car with sensors attached
+        # We can transform to world positions using frame.pose.transform.
+        # But to get coordinates back to the reference frame - WHICH IS THE INITIAL POSITION OF THE CAR - we use the below inverse matrix
+        frame_thisPose = np.reshape(np.array(frame.pose.transform).astype(np.float32), [4, 4])
+        if frameIndex == 0:
+            worldToReferencePointTransform  = np.linalg.inv(frame_thisPose)
+        # -------------------------------------------
 
-            # Step 2: Process the frame and get the 3d lidar points and camera projected points from the frame, for each return
-            # -------------------------------------------
-            points_byreturn, cp_points_byreturn = getPointCloudPointsAndCameraProjections(frame, frame_thisPose, worldToReferencePointTransform)
-            # -------------------------------------------
+        # Step 2: Process the frame and get the 3d lidar points and camera projected points from the frame, for each return
+        # -------------------------------------------
+        points_byreturn, cp_points_byreturn = getPointCloudPointsAndCameraProjections(frame, frame_thisPose, worldToReferencePointTransform)
+        # -------------------------------------------
 
 
-            # Step 3: iterate over all point cloud data and camera projections and fill a dictionary with each 3D point data
-            # Here we gather all ply data in format: {(x,y,z) : [r g b label]], for all points in the point cloud.
-            # Why dictionary ? Because we might want to discretize from original space to a lower dimensional space so same x,y,z from original data might go into the same chunk
-            # -------------------------------------------
-            plyDataPoints = {}
+        # Step 3: iterate over all point cloud data and camera projections and fill a dictionary with each 3D point data
+        # Here we gather all ply data in format: {(x,y,z) : [r g b label]], for all points in the point cloud.
+        # Why dictionary ? Because we might want to discretize from original space to a lower dimensional space so same x,y,z from original data might go into the same chunk
+        # -------------------------------------------
+        plyDataPoints = {}
 
-            # Read the RGB images and segmentation labels corresponding for this frame
-            RGB_Data = readRGBDataForFrame(frameIndex, segmentName)
-            SEG_Data = readSEGDataForFrame(frameIndex, segmentName)
+        # Read the RGB images and segmentation labels corresponding for this frame
+        RGB_Data = readRGBDataForFrame(frameIndex, segmentName)
+        SEG_Data = readSEGDataForFrame(frameIndex, segmentName)
 
-            # Sort images by key index
-            images = sorted(frame.images, key=lambda i: i.name)
+        # Sort images by key index
+        images = sorted(frame.images, key=lambda i: i.name)
 
-            # For each return
-            for returnIndex in returnsIndicesToUse:
-                # Put together [projected camera data, 3D points] on the same row, convert to tensor
-                cp_points_all_concat = np.concatenate([cp_points_byreturn[returnIndex], points_byreturn[returnIndex]],
-                                                        axis=-1)
-                cp_points_all_concat_tensor = tf.constant(cp_points_all_concat)
+        # For each return
+        for returnIndex in returnsIndicesToUse:
+            # Put together [projected camera data, 3D points] on the same row, convert to tensor
+            cp_points_all_concat = np.concatenate([cp_points_byreturn[returnIndex], points_byreturn[returnIndex]],
+                                                    axis=-1)
+            cp_points_all_concat_tensor = tf.constant(cp_points_all_concat)
 
-                # Compute the distance between lidar points and vehicle frame origin for each 3d point
-                distances_all_tensor = tf.norm(points_byreturn[returnIndex], axis=-1,
-                                                 keepdims=True) if IS_RANGE_COLOR_ShOWING_ENABLED is True else None
+            # Compute the distance between lidar points and vehicle frame origin for each 3d point
+            distances_all_tensor = tf.norm(points_byreturn[returnIndex], axis=-1,
+                                             keepdims=True) if IS_RANGE_COLOR_ShOWING_ENABLED is True else None
 
-                # Create a tensor with all projected [projected camera data] and one with 3d points
-                cp_points_all_tensor = tf.constant(cp_points_byreturn[returnIndex], dtype=tf.int32)
-                points_3D_all_tensor = tf.constant(points_byreturn[returnIndex], dtype=tf.float32)
+            # Create a tensor with all projected [projected camera data] and one with 3d points
+            cp_points_all_tensor = tf.constant(cp_points_byreturn[returnIndex], dtype=tf.int32)
+            points_3D_all_tensor = tf.constant(points_byreturn[returnIndex], dtype=tf.float32)
 
-                # For each camera image index
-                image_projections_indices = [0, 1]
-                for imageProjIndex in image_projections_indices:
-                    for image_index in cameraindices_to_use:
-                        assert len(images) == len(cameraindices_to_use), ("looks like you need to add more data in image_projection_indices and see if I didn't do any hacks with it ! Waymo data changed")
+            # For each camera image index
+            image_projections_indices = [0, 1]
+            for imageProjIndex in image_projections_indices:
+                for image_index in cameraindices_to_use:
+                    assert len(images) == len(cameraindices_to_use), ("looks like you need to add more data in image_projection_indices and see if I didn't do any hacks with it ! Waymo data changed")
 
-                        # A mask with True where the camera projection points where on this image index
-                        mask = tf.equal(cp_points_all_tensor[..., 0 if imageProjIndex == 0 else 3],
-                                          images[image_index].name)
+                    # A mask with True where the camera projection points where on this image index
+                    mask = tf.equal(cp_points_all_tensor[..., 0 if imageProjIndex == 0 else 3],
+                                      images[image_index].name)
 
-                        # Now select only camera projection data and 3D points in vehicle frame associated with this camera index
-                        cp_points_all_tensor_camera = tf.cast(tf.gather_nd(cp_points_all_tensor, tf.where(mask)),
-                                                                dtype=tf.float32)
-                        points_3D_all_tensor_camera = tf.cast(tf.gather_nd(points_3D_all_tensor, tf.where(mask)),
-                                                                dtype=tf.float32)
+                    # Now select only camera projection data and 3D points in vehicle frame associated with this camera index
+                    cp_points_all_tensor_camera = tf.cast(tf.gather_nd(cp_points_all_tensor, tf.where(mask)),
+                                                            dtype=tf.float32)
+                    points_3D_all_tensor_camera = tf.cast(tf.gather_nd(points_3D_all_tensor, tf.where(mask)),
+                                                            dtype=tf.float32)
 
-                        # Select only the cp points associated with the iterated camera projection index
-                        cp_points_all_tensor_camera_byProjIndex = cp_points_all_tensor_camera[...,1:3] if imageProjIndex == 0 \
-                                                                      else cp_points_all_tensor_camera[..., 4:6]
+                    # Select only the cp points associated with the iterated camera projection index
+                    cp_points_all_tensor_camera_byProjIndex = cp_points_all_tensor_camera[...,1:3] if imageProjIndex == 0 \
+                                                                  else cp_points_all_tensor_camera[..., 4:6]
 
-                        # Associate on each row one 3D point with its corresponding image camera projection (this index being iterated on)
-                        # We have now on each row:  [(x,y,z, camX, camY)]
-                        points3D_and_cp = tf.concat([points_3D_all_tensor_camera, cp_points_all_tensor_camera_byProjIndex], axis=-1).numpy()
+                    # Associate on each row one 3D point with its corresponding image camera projection (this index being iterated on)
+                    # We have now on each row:  [(x,y,z, camX, camY)]
+                    points3D_and_cp = tf.concat([points_3D_all_tensor_camera, cp_points_all_tensor_camera_byProjIndex], axis=-1).numpy()
 
-                        # Gather these points in the output dictionary
-                        processPoints(points3D_and_cp, plyDataPoints, imageCameraIndex=image_index, rgbData = RGB_Data, segData = SEG_Data)
+                    # Gather these points in the output dictionary
+                    processPoints(points3D_and_cp, plyDataPoints, imageCameraIndex=image_index, rgbData = RGB_Data, segData = SEG_Data)
 
-                        # Demo showing...
-                        if IS_RANGE_COLOR_ShOWING_ENABLED:
-                            distances_all_tensor_camera = tf.gather_nd(distances_all_tensor, tf.where(mask))
+                    # Demo showing...
+                    if IS_RANGE_COLOR_ShOWING_ENABLED:
+                        distances_all_tensor_camera = tf.gather_nd(distances_all_tensor, tf.where(mask))
 
-                            # Associate on each row, with each x,y in camera space, the distance from vehicle frame to the 3D point lidar
-                            projected_points_all_from_raw_data = tf.concat(
-                                [cp_points_all_tensor_camera[..., 1:3],
-                                distances_all_tensor_camera] if imageProjIndex == 0 else \
-                                    [cp_points_all_tensor_camera[..., 4:6], distances_all_tensor_camera],
-                                axis=-1).numpy()
+                        # Associate on each row, with each x,y in camera space, the distance from vehicle frame to the 3D point lidar
+                        projected_points_all_from_raw_data = tf.concat(
+                            [cp_points_all_tensor_camera[..., 1:3],
+                            distances_all_tensor_camera] if imageProjIndex == 0 else \
+                                [cp_points_all_tensor_camera[..., 4:6], distances_all_tensor_camera],
+                            axis=-1).numpy()
 
-                            plot_points_on_image(projected_points_all_from_raw_data, images[image_index], rgba, point_size=5.0)
+                        plot_points_on_image(projected_points_all_from_raw_data, images[image_index], rgba, point_size=5.0)
 
-                  # Add all point cloud points which are not not labeled (not found in a projected camera image)
-                mask = tf.equal(cp_points_all_tensor[..., 0], 0)  # 0 is the index for unprojected camera point, on first cp index
-                points_3D_all_unprojected_tensor = tf.cast(tf.gather_nd(points_3D_all_tensor, tf.where(mask)), dtype=tf.float32)
-                processPoints(points_3D_all_unprojected_tensor.numpy(), plyDataPoints, imageCameraIndex=NO_CAMERA_INDEX)
+              # Add all point cloud points which are not not labeled (not found in a projected camera image)
+            mask = tf.equal(cp_points_all_tensor[..., 0], 0)  # 0 is the index for unprojected camera point, on first cp index
+            points_3D_all_unprojected_tensor = tf.cast(tf.gather_nd(points_3D_all_tensor, tf.where(mask)), dtype=tf.float32)
+            processPoints(points_3D_all_unprojected_tensor.numpy(), plyDataPoints, imageCameraIndex=NO_CAMERA_INDEX)
 
-            plyDataPointsFlattened = convertDictPointsToList(plyDataPoints)
+        plyDataPointsFlattened = convertDictPointsToList(plyDataPoints)
 
-            folderOutput    = os.path.join(POINTCLOUD_OUTPUT_BASEFILEPATH, segmentName)
-            outputFramePath_rgb =  os.path.join(folderOutput, ("{0:05d}.ply").format(frameIndex))
-            outputFramePath_seg =  os.path.join(folderOutput, ("{0:05d}_seg.ply").format(frameIndex))
-            outputFramePath_segColored = os.path.join(folderOutput, ("{0:05d}_segColor.ply").format(frameIndex))
+        folderOutput    = os.path.join(POINTCLOUD_OUTPUT_BASEFILEPATH, segmentName)
+        outputFramePath_rgb =  os.path.join(folderOutput, ("{0:05d}.ply").format(frameIndex))
+        outputFramePath_seg =  os.path.join(folderOutput, ("{0:05d}_seg.ply").format(frameIndex))
+        outputFramePath_segColored = os.path.join(folderOutput, ("{0:05d}_segColor.ply").format(frameIndex))
 
-            save_3d_pointcloud_asRGB(plyDataPointsFlattened, outputFramePath_rgb)  # TODO: save one file with test_x.ply, using RGB values, another one test_x_seg.ply using segmented data.
-            save_3d_pointcloud_asSegLabel(plyDataPointsFlattened, outputFramePath_seg)
-            save_3d_pointcloud_asSegColored(plyDataPointsFlattened, outputFramePath_segColored)
+        save_3d_pointcloud_asRGB(plyDataPointsFlattened, outputFramePath_rgb)  # TODO: save one file with test_x.ply, using RGB values, another one test_x_seg.ply using segmented data.
+        save_3d_pointcloud_asSegLabel(plyDataPointsFlattened, outputFramePath_seg)
+        save_3d_pointcloud_asSegColored(plyDataPointsFlattened, outputFramePath_segColored)
 
-            onFrameProcessedEnd()
-            # -------------------------------------------
+        onFrameProcessedEnd()
+        # -------------------------------------------
 
 def onFrameProcessedEnd():
       # Show some stats..
@@ -857,6 +871,8 @@ def onFrameProcessedEnd():
                   else:
                       assert False, "Ended processing"
 
+
+          print("Num saved pedestrian points: ", DEBUG_NumPedestriansPoints_Stats)
 def setupGlobals():
   global ade20KToCarla
   global ade20KToNameAndCarlaId
@@ -873,6 +889,5 @@ def setupGlobals():
 
 
 if __name__ == "__main__":
-  setupGlobals()
-  doPointCloudReconstruction(FILENAME_SAMPLE)
+  doPointCloudReconstruction(FILENAME_SAMPLE[0], FRAMEINDEX_MIN=0, FRAMEINDEX_MAX=5)
 

@@ -7,8 +7,14 @@ sys.path.append("/home/ciprian/Work/RLAgent/commonUtils") #os.path.join(os.path.
 # Where to write the output of scenes filetering tool
 OUTPUT_SCENES_FILTERING_PATH = r'scenes.csv'
 
-# WHere to write the output of the data converion process
-BASE_OUTPUT_PATH = os.path.join("semanticSegmentation", "OUTPUT")
+try:
+    BASE_OUTPUT_PATH
+except NameError:
+    print("defining base output path..")
+    # WHere to write the output of the data converion process
+    BASE_OUTPUT_PATH = os.path.join("semanticSegmentation", "OUTPUT")
+else:
+    print("already defined")
 
 # Mapping from ADE20K, the segmentation method dataset that we use to CARLA - the output
 ##################

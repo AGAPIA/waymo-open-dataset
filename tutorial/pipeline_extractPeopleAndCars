@@ -88,82 +88,79 @@ def debugTest():
     corners = get_min_max_3d_box_corners(bboxes, transform)
     print(corners)
 
-def runExtraction(listOfSegmentsPaths):
-    # Define base segmentation modelBaseParams such as model and configs
-    allRGBImagesDict = {}
-    for segmentPath in listOfSegmentsPaths:
-        # 1. Iterate over frame by frame of a segment
-        dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
-        lidarLabels = None
+def do_PeopleAndVehiclesExtraction(segmentPath):
+    # 1. Iterate over frame by frame of a segment
+    dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
+    lidarLabels = None
 
-        pedestrians_data = {}
-        vehicle_data = {}
-        useGlobalPoseTransform = True
-        worldToReferencePointTransform = None
+    pedestrians_data = {}
+    vehicle_data = {}
+    useGlobalPoseTransform = True
+    worldToReferencePointTransform = None
 
-        for frameIndex, data in enumerate(dataset):
-            # Read the frame in bytes
-            frame = open_dataset.Frame()
-            frame.ParseFromString(bytearray(data.numpy()))
-            lidarLabels = frame.laser_labels
+    for frameIndex, data in enumerate(dataset):
+        # Read the frame in bytes
+        frame = open_dataset.Frame()
+        frame.ParseFromString(bytearray(data.numpy()))
+        lidarLabels = frame.laser_labels
 
-            # All cars and pedestrians are relative to the car with sensors attached
-            # We can transform to world positions using frame.pose.transform.
-            # But to get coordinates back to the reference frame - WHICH IS THE INITIAL POSITION OF THE CAR - we use the below inverse matrix
-            frame_thisPose = np.reshape(np.array(frame.pose.transform).astype(np.float32), [4, 4])
-            if frameIndex == 0:
-                worldToReferencePointTransform = np.linalg.inv(frame_thisPose)
+        # All cars and pedestrians are relative to the car with sensors attached
+        # We can transform to world positions using frame.pose.transform.
+        # But to get coordinates back to the reference frame - WHICH IS THE INITIAL POSITION OF THE CAR - we use the below inverse matrix
+        frame_thisPose = np.reshape(np.array(frame.pose.transform).astype(np.float32), [4, 4])
+        if frameIndex == 0:
+            worldToReferencePointTransform = np.linalg.inv(frame_thisPose)
 
-            #print(f'There are {len(lidarLabels)} lidar labels')
+        #print(f'There are {len(lidarLabels)} lidar labels')
 
-            # Transform all boxes for this frame to the global world coordinates and retain minMax points from each
-            allBoxes = [None] * len(lidarLabels)
-            for entityIndex, label in enumerate(lidarLabels):
-                box = label.box
-                allBoxes[entityIndex] = [box.center_x, box.center_y, box.center_z, box.length, box.width, box.height, box.heading]
+        # Transform all boxes for this frame to the global world coordinates and retain minMax points from each
+        allBoxes = [None] * len(lidarLabels)
+        for entityIndex, label in enumerate(lidarLabels):
+            box = label.box
+            allBoxes[entityIndex] = [box.center_x, box.center_y, box.center_z, box.length, box.width, box.height, box.heading]
 
 
-            allBoxesMinMax = get_min_max_3d_box_corners(allBoxes, vehicleToWorldTransform=frame_thisPose,
-                                                        worldToReferencePointTransform=worldToReferencePointTransform,
-                                                        useGlobalPoseTransform=useGlobalPoseTransform)
-            assert allBoxesMinMax.shape[1] == 3 and allBoxesMinMax.shape[2] == 2, 'Incorrect format of data'
+        allBoxesMinMax = get_min_max_3d_box_corners(allBoxes, vehicleToWorldTransform=frame_thisPose,
+                                                    worldToReferencePointTransform=worldToReferencePointTransform,
+                                                    useGlobalPoseTransform=useGlobalPoseTransform)
+        assert allBoxesMinMax.shape[1] == 3 and allBoxesMinMax.shape[2] == 2, 'Incorrect format of data'
 
-            # Write info for this frame
-            if pedestrians_data.get(frameIndex) == None:
-                pedestrians_data[frameIndex] = {}
-            if vehicle_data.get(frameIndex) == None:
-                vehicle_data[frameIndex] = {}
+        # Write info for this frame
+        if pedestrians_data.get(frameIndex) == None:
+            pedestrians_data[frameIndex] = {}
+        if vehicle_data.get(frameIndex) == None:
+            vehicle_data[frameIndex] = {}
 
-            for entityIndex, label in enumerate(lidarLabels):
-                if label.type != label.TYPE_VEHICLE and label.type != label.TYPE_CYCLIST and label.type != label.TYPE_PEDESTRIAN:
-                    continue
+        for entityIndex, label in enumerate(lidarLabels):
+            if label.type != label.TYPE_VEHICLE and label.type != label.TYPE_CYCLIST and label.type != label.TYPE_PEDESTRIAN:
+                continue
 
-                boxMinMax = allBoxesMinMax[entityIndex]
+            boxMinMax = allBoxesMinMax[entityIndex]
 
-                isVehicle = label.type == label.TYPE_VEHICLE or label.type == label.TYPE_CYCLIST
-                isPedestrian = label.type == label.TYPE_PEDESTRIAN
-                targetOutputDict = vehicle_data[frameIndex] if isVehicle else pedestrians_data[frameIndex]
+            isVehicle = label.type == label.TYPE_VEHICLE or label.type == label.TYPE_CYCLIST
+            isPedestrian = label.type == label.TYPE_PEDESTRIAN
+            targetOutputDict = vehicle_data[frameIndex] if isVehicle else pedestrians_data[frameIndex]
 
-                assert targetOutputDict.get(label.id) is None, "This entity Id is already in the set !!"
-                targetOutputDict[label.id] = { "BBMinMax" : boxMinMax }
+            assert targetOutputDict.get(label.id) is None, "This entity Id is already in the set !!"
+            targetOutputDict[label.id] = { "BBMinMax" : boxMinMax }
 
-            #break
+        #break
 
-        #print("Vehicles...\n", vehicle_data)
-        #print("Pedestrians...\n", pedestrians_data)
+    #print("Vehicles...\n", vehicle_data)
+    #print("Pedestrians...\n", pedestrians_data)
 
-        # Save people.p and cars.p
-        segmentName = extractSegmentNameFromPath(segmentPath)
-        segmentFiles_OutputPath = os.path.join(MOTION_OUTPUT_BASEFILEPATH, segmentName)
+    # Save people.p and cars.p
+    segmentName = extractSegmentNameFromPath(segmentPath)
+    segmentFiles_OutputPath = os.path.join(MOTION_OUTPUT_BASEFILEPATH, segmentName)
 
-        filepathsAndDictionaries = {'pedestrians' : (pedestrians_data, os.path.join(segmentFiles_OutputPath, "people.p")),
-                                     'cars' : (vehicle_data, os.path.join(segmentFiles_OutputPath, "cars.p"))
-                                    }
-        for key, value in filepathsAndDictionaries.items():
-            dataObj = value[0]
-            filePath = value[1]
-            with open(filePath, mode="wb") as fileObj:
-                pickle.dump(dataObj, fileObj, protocol=2) # Protocol 2 because seems to be compatible between 2.x and 3.x !
+    filepathsAndDictionaries = {'pedestrians' : (pedestrians_data, os.path.join(segmentFiles_OutputPath, "people.p")),
+                                 'cars' : (vehicle_data, os.path.join(segmentFiles_OutputPath, "cars.p"))
+                                }
+    for key, value in filepathsAndDictionaries.items():
+        dataObj = value[0]
+        filePath = value[1]
+        with open(filePath, mode="wb") as fileObj:
+            pickle.dump(dataObj, fileObj, protocol=2) # Protocol 2 because seems to be compatible between 2.x and 3.x !
 
 if __name__ == "__main__": # 'frames'
-    runExtraction(FILENAME_SAMPLE)
+    do_PeopleAndVehiclesExtraction(FILENAME_SAMPLE[0])
