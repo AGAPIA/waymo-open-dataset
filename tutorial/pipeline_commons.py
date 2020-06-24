@@ -9,7 +9,7 @@ import tensorflow as tf
 import logging
 #logging.basicConfig(level=logging.INFO)
 
-sys.path.append("/home/ciprian/Work/RLAgent/commonUtils") #os.path.join(os.path.dirname(__file__), "lib"))
+sys.path.append("../commonUtils") #os.path.join(os.path.dirname(__file__), "lib"))
 
 # Note: the semantic segmentation code has its own logger defined in utils.py/setup_logger func
 globalLogger = None

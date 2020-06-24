@@ -7,10 +7,10 @@ The purpose of this stage is to use:
 
 import os, sys
 import numpy as np
-sys.path.append("/home/ciprian/Work/RLAgent/commonUtils") #os.path.join(os.path.dirname(__file__), "lib"))
-
-import ReconstructionUtils
+#os.path.join(os.path.dirname(__file__), "lib"))
 import pipeline_commons
+import ReconstructionUtils
+
 
 # Do reconstruction between FRAME_MIN and FRAME_MAX
 # frameSkip = How many frames modulo to skip for reconstruction (if needed
