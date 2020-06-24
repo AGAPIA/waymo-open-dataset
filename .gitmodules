@@ -1,0 +1,3 @@
+[submodule "semanticSegmentation"]
+	path = semanticSegmentation
+	url = https://github.com/AGAPIA/semantic-segmentation-pytorch

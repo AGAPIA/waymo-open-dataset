@@ -87,6 +87,8 @@ export TF_VERSION="${TF_VERSION:-1.15.0}"
 export TF_VERSION_UNDERSCORE=$(echo $TF_VERSION | sed 's/\./_/g')
 export TF_VERSION_DASH=$(echo $TF_VERSION | sed 's/\./-/g')
 
+echo 'Running pip setup'
+
 cat WORKSPACE.in | sed "s/TF_VERSION/${TF_VERSION_UNDERSCORE}/" > WORKSPACE
 cat pip_pkg_scripts/setup.py.in | sed "s/TF_VERSION/${TF_VERSION_DASH}/" > pip_pkg_scripts/setup.py
 

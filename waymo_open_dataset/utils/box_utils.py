@@ -69,6 +69,21 @@ def is_within_box_3d(point, box, name=None):
 
     return point_in_box
 
+def is_within_any_box_3d(point, box, name=None):
+    """Checks whether a point is in any of 3d box given a set of points and boxes.
+
+    Args:
+    point: [N, 3] tensor. Inner dims are: [x, y, z].
+    box: [M, 7] tensor. Inner dims are: [center_x, center_y, center_z, length,
+      width, height, heading].
+    name: tf name scope.
+
+    Returns:
+    point_in_box; [N] boolean numpy tensor. R[i] = True if point is in any of the boxes
+    """
+    res = is_within_box_3d(point, box, name)
+    res = tf.reduce_any(input_tensor=res, axis = -1)
+    return res.numpy()
 
 def compute_num_points_in_box_3d(point, box, name=None):
   """Computes the number of points in each box given a set of points and boxes.
@@ -128,6 +143,39 @@ def get_upright_3d_box_corners(boxes, name=None):
     corners = tf.einsum('nij,nkj->nki', rotation, corners) + tf.expand_dims(
         translation, axis=-2)
 
+    return corners
+
+
+def get_min_max_3d_box_corners(boxes, name=None):
+  """Given a set of upright boxes, return its 2 min and max corner points
+
+  Args:
+    boxes: tf Tensor [N, 7]. The inner dims are [center{x,y,z}, length, width,
+      height, heading].
+    name: the name scope.
+
+  Returns:
+    corners: tf Tensor [N, 8, 3].
+  """
+  with tf.compat.v1.name_scope(name, 'GetMinMax3dBoxCorners', [boxes]):
+    center_x, center_y, center_z, length, width, height, heading = tf.unstack(
+        boxes, axis=-1)
+
+    # [N, 3, 3]
+    rotation = transform_utils.get_yaw_rotation(heading)
+    # [N, 3]
+    translation = tf.stack([center_x, center_y, center_z], axis=-1)
+
+    l2 = length * 0.5
+    w2 = width * 0.5
+    h2 = height * 0.5
+
+    # [N, 2, 3]
+    corners = tf.reshape(
+        tf.stack([-l2, -w2, -h2, l2, w2, h2],axis=-1),
+                            [-1, 2, 3])
+    # [N, 2, 3]
+    corners = tf.einsum('nij,nkj->nki', rotation, corners) + tf.expand_dims(translation, axis=-2)
     return corners
 
 
