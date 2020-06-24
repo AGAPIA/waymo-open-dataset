@@ -6,9 +6,10 @@ import itertools
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import sys
-from pipeline_commons import *
+import pipeline_commons
 import pickle
 
+#tf.debugging.set_log_device_placement(True)
 
 tf.enable_eager_execution()
 from waymo_open_dataset.utils import range_image_utils
@@ -88,7 +89,7 @@ def debugTest():
     corners = get_min_max_3d_box_corners(bboxes, transform)
     print(corners)
 
-def do_PeopleAndVehiclesExtraction(segmentPath):
+def do_PeopleAndVehiclesExtraction(segmentPath, globalParams):
     # 1. Iterate over frame by frame of a segment
     dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
     lidarLabels = None
@@ -99,6 +100,11 @@ def do_PeopleAndVehiclesExtraction(segmentPath):
     worldToReferencePointTransform = None
 
     for frameIndex, data in enumerate(dataset):
+        if (globalParams.FRAMEINDEX_MIN > frameIndex) and frameIndex != 0: # We need first frame reference point !!:
+            continue
+        if globalParams.FRAMEINDEX_MAX < frameIndex:
+            break
+
         # Read the frame in bytes
         frame = open_dataset.Frame()
         frame.ParseFromString(bytearray(data.numpy()))
@@ -150,8 +156,8 @@ def do_PeopleAndVehiclesExtraction(segmentPath):
     #print("Pedestrians...\n", pedestrians_data)
 
     # Save people.p and cars.p
-    segmentName = extractSegmentNameFromPath(segmentPath)
-    segmentFiles_OutputPath = os.path.join(MOTION_OUTPUT_BASEFILEPATH, segmentName)
+    segmentName = pipeline_commons.extractSegmentNameFromPath(segmentPath)
+    segmentFiles_OutputPath = os.path.join(globalParams.MOTION_OUTPUT_BASEFILEPATH, segmentName)
 
     filepathsAndDictionaries = {'pedestrians' : (pedestrians_data, os.path.join(segmentFiles_OutputPath, "people.p")),
                                  'cars' : (vehicle_data, os.path.join(segmentFiles_OutputPath, "cars.p"))
@@ -163,4 +169,8 @@ def do_PeopleAndVehiclesExtraction(segmentPath):
             pickle.dump(dataObj, fileObj, protocol=2) # Protocol 2 because seems to be compatible between 2.x and 3.x !
 
 if __name__ == "__main__": # 'frames'
-    do_PeopleAndVehiclesExtraction(FILENAME_SAMPLE[0])
+    import pipeline_params
+    pipeline_params.globalParams.FRAMEINDEX_MIN = 0
+    pipeline_params.globalParams.FRAMEINDEX_MAX = 5
+
+    do_PeopleAndVehiclesExtraction(pipeline_params.FILENAME_SAMPLE[0], pipeline_params.globalParams)

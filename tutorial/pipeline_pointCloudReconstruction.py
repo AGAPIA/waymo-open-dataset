@@ -16,7 +16,7 @@ import itertools
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import sys
-from pipeline_commons import *
+import pipeline_commons
 import collections
 
 tf.enable_eager_execution()
@@ -29,7 +29,9 @@ from plyfile import PlyData, PlyElement
 from scipy import stats
 from PIL import Image
 import pickle
-from ReconstructionUtils import carla_labels, carla_label_colours, reconstruct3D_ply, isUsefulLabelForReconstruction, NO_LABEL_POINT, SEGLABEL_PEDESTRIAN, NUM_LABELS_CARLA
+
+import ReconstructionUtils
+
 
 # Some internal settings
 #--------------------------------
@@ -274,8 +276,10 @@ def plot_points_on_image(projected_points, camera_image, rgba_func,
 
 # These two functions read the the RGB and segmentation data corresponding to one frame.
 # The output is {'camera index' : data } where data is [Height, Width, RGB] array
-def readRGBDataForFrame(frameIndex, segmentName):
-    RGB_IMAGES_PATH = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName, SEG_INPUT_IMAGES_RGBFOLDER)
+def readRGBDataForFrame(frameIndex, segmentName, globalParams):
+    RGB_IMAGES_PATH = os.path.join(globalParams.SEG_INPUT_IMAGES_BASEPATH, segmentName, globalParams.SEG_INPUT_IMAGES_RGBFOLDER)
+    if not os.path.exists(RGB_IMAGES_PATH):
+        os.makedirs(RGB_IMAGES_PATH, exist_ok=True)
 
     outData = {}
     for cameraIndex in cameraindices_to_use:
@@ -283,8 +287,11 @@ def readRGBDataForFrame(frameIndex, segmentName):
         outData[cameraIndex] = np.array(pic)
     return outData
 
-def readSEGDataForFrame(frameIndex, segmentName):
-    SEG_IMAGES_PATH = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUT_LABELS_SEGFOLDER)
+def readSEGDataForFrame(frameIndex, segmentName, globalParams):
+    SEG_IMAGES_PATH = os.path.join(globalParams.SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, globalParams.SEG_OUTPUT_LABELS_SEGFOLDER)
+    if not os.path.exists(SEG_IMAGES_PATH):
+        os.makedirs(SEG_IMAGES_PATH, exist_ok=True)
+
     targetFilePath = os.path.join(SEG_IMAGES_PATH, f"labels_{frameIndex}.pkl")
     outData = pickle.load(open(targetFilePath, "rb"))
 
@@ -320,7 +327,7 @@ def save_3d_pointcloud_asSegLabel(points_3d, filename):
                 print ("Problem " + str(point))
         """
         if STATS_DEBUG_ENABLED:
-            DEBUG_NumPedestriansPoints_Stats += 1 if point.segLabel == SEGLABEL_PEDESTRIAN else 0
+            DEBUG_NumPedestriansPoints_Stats += 1 if point.segLabel == ReconstructionUtils.SEGLABEL_PEDESTRIAN else 0
 
     # points_3d = np.concatenate(
     #     (point_list._array, self._color_array), axis=1)
@@ -455,7 +462,7 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
         # This is the default: the point has no segmentation label
         camX, camY = None, None
         R, G, B = 0, 0, 0
-        label = NO_LABEL_POINT
+        label = ReconstructionUtils.NO_LABEL_POINT
 
         # Check to see if the point has a camera projection and we can find out its segmentation label
         if imageCameraIndex != NO_CAMERA_INDEX:
@@ -474,7 +481,7 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
                 DEBUG_origSegLabel_Stats[origLabel] += 1
 
             label = ade20KToCarla[origLabel] # Move to CARLA segmentation values
-            if DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE == True and (not isUsefulLabelForReconstruction(label)):
+            if DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE == True and (not ReconstructionUtils.isUsefulLabelForReconstruction(label)):
                 continue
 
             """
@@ -521,9 +528,9 @@ def convertDictPointsToList(inPlyDataPoints):
         # If the first votes is unlabelled, then chose the next if any that is not ignored
         votedLabel = mode[0]
         if DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE == True:
-            if isUsefulLabelForReconstruction(votedLabel) == False:
+            if ReconstructionUtils.isUsefulLabelForReconstruction(votedLabel) == False:
                 for mi in range(len(mode)):
-                    if isUsefulLabelForReconstruction(mode[mi]) == True:
+                    if ReconstructionUtils.isUsefulLabelForReconstruction(mode[mi]) == True:
                         votedLabel = mode[mi]
                         break
 
@@ -542,7 +549,7 @@ def convertDictPointsToList(inPlyDataPoints):
                 break
 
         if votedRGB != None:
-            segColor = carla_label_colours[votedLabel]
+            segColor = ReconstructionUtils.carla_label_colours[votedLabel]
             outPlyDataPoints.append(Point3DInfoType(x, y, z, *votedRGB, votedLabel, *segColor))
 
             if VOXELIZATION_FOR_ARTEFACTS_ENABLED == True:
@@ -590,14 +597,14 @@ def convertDictPointsToList(inPlyDataPoints):
 
                 numTotalPoints = len(outPlyDataPoints)
                 pointsAroundData = [outPlyDataPoints[index] for index in indices if index < numTotalPoints]
-                labelsVoted = np.zeros(NUM_LABELS_CARLA + 1)
+                labelsVoted = np.zeros(ReconstructionUtils.NUM_LABELS_CARLA + 1)
                 for pAround in pointsAroundData:
                     labelsVoted[pAround.segLabel] += 1
 
                 mostVotedLabel = np.argmax(labelsVoted)
                 if mostVotedLabel != point3DData.segLabel and labelsVoted[mostVotedLabel] > MIN_COUNT_TO_VALIDATE_NEW_LABEL:
                     outPlyDataPoints[index].segLabel = mostVotedLabel
-                    outPlyDataPoints[index].segR, outPlyDataPoints[index].segG, outPlyDataPoints[index].segB  = carla_label_colours[mostVotedLabel]
+                    outPlyDataPoints[index].segR, outPlyDataPoints[index].segG, outPlyDataPoints[index].segB  = ReconstructionUtils.carla_label_colours[mostVotedLabel]
 
     elif VOXELIZATION_FOR_ARTEFACTS_ENABLED:
         print("Starting the mode algorithm...")
@@ -714,15 +721,15 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
     return points_byreturn, cp_points_byreturn
 
 
-def doPointCloudReconstruction(segmentPath, FRAMEINDEX_MIN, FRAMEINDEX_MAX):
-    setupGlobals()
+def do_PointCloudReconstruction(segmentPath, globalParams):
+    setupGlobals(globalParams)
     # These are the transformation from world frame to the reference vehicle frame (first pose of the vehicle in the world)
     worldToReferencePointTransform = None
 
     assert os.path.exists(segmentPath), (f'The file you specified {segmentPath} doesn\'t exist !')
 
-    segmentName = extractSegmentNameFromPath(segmentPath)
-    segmentedDataPath = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUT_LABELS_SEGFOLDER)
+    segmentName = pipeline_commons.extractSegmentNameFromPath(segmentPath)
+    segmentedDataPath = os.path.join(globalParams.SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, globalParams.SEG_OUTPUT_LABELS_SEGFOLDER)
 
     # Reset some things that shouldn't be persistent between episodes
     global DEBUG_origSegLabel_Stats
@@ -732,12 +739,27 @@ def doPointCloudReconstruction(segmentPath, FRAMEINDEX_MIN, FRAMEINDEX_MAX):
     dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
     for frameIndex, data in enumerate(dataset):
         if frameIndex != 0: # We need first frame to get the camera reference point
-            if FRAMEINDEX_MIN is not None and frameIndex < FRAMEINDEX_MIN:
+            if (globalParams.FRAMEINDEX_MIN is not None and frameIndex < globalParams.FRAMEINDEX_MIN) and frameIndex != 0: # We need first frame reference point !!
                 continue
-            if FRAMEINDEX_MAX is not None and frameIndex > FRAMEINDEX_MAX:
+            if globalParams.FRAMEINDEX_MAX is not None and frameIndex > globalParams.FRAMEINDEX_MAX:
                 break
 
-        print(f"Extracting point cloud from frame {frameIndex}...")
+        # Check if the files already exists
+        folderOutput    = os.path.join(globalParams.POINTCLOUD_OUTPUT_BASEFILEPATH, segmentName)
+        outputFramePath_rgb =  os.path.join(folderOutput, ("{0:05d}.ply").format(frameIndex))
+        outputFramePath_seg =  os.path.join(folderOutput, ("{0:05d}_seg.ply").format(frameIndex))
+        outputFramePath_segColored = os.path.join(folderOutput, ("{0:05d}_segColor.ply").format(frameIndex))
+
+        if globalParams.FORCE_RECOMPUTE == False and \
+            os.path.exists(outputFramePath_rgb) and \
+            os.path.exists(outputFramePath_seg) and \
+            os.path.exists(outputFramePath_segColored):
+            continue
+
+
+        if frameIndex % pipeline_commons.FRAMESINFO_IMGS_DEBUG_RATE == 0:
+            pipeline_commons.globalLogger.info(f"Extracted point cloud for frames {frameIndex}/{globalParams.FRAMEINDEX_MAX}...")
+
         # Step 1: Read the frame in bytes
         # -------------------------------------------
         frame = open_dataset.Frame()
@@ -764,8 +786,8 @@ def doPointCloudReconstruction(segmentPath, FRAMEINDEX_MIN, FRAMEINDEX_MAX):
         plyDataPoints = {}
 
         # Read the RGB images and segmentation labels corresponding for this frame
-        RGB_Data = readRGBDataForFrame(frameIndex, segmentName)
-        SEG_Data = readSEGDataForFrame(frameIndex, segmentName)
+        RGB_Data = readRGBDataForFrame(frameIndex, segmentName, globalParams)
+        SEG_Data = readSEGDataForFrame(frameIndex, segmentName, globalParams)
 
         # Sort images by key index
         images = sorted(frame.images, key=lambda i: i.name)
@@ -832,19 +854,14 @@ def doPointCloudReconstruction(segmentPath, FRAMEINDEX_MIN, FRAMEINDEX_MAX):
 
         plyDataPointsFlattened = convertDictPointsToList(plyDataPoints)
 
-        folderOutput    = os.path.join(POINTCLOUD_OUTPUT_BASEFILEPATH, segmentName)
-        outputFramePath_rgb =  os.path.join(folderOutput, ("{0:05d}.ply").format(frameIndex))
-        outputFramePath_seg =  os.path.join(folderOutput, ("{0:05d}_seg.ply").format(frameIndex))
-        outputFramePath_segColored = os.path.join(folderOutput, ("{0:05d}_segColor.ply").format(frameIndex))
-
         save_3d_pointcloud_asRGB(plyDataPointsFlattened, outputFramePath_rgb)  # TODO: save one file with test_x.ply, using RGB values, another one test_x_seg.ply using segmented data.
         save_3d_pointcloud_asSegLabel(plyDataPointsFlattened, outputFramePath_seg)
         save_3d_pointcloud_asSegColored(plyDataPointsFlattened, outputFramePath_segColored)
 
-        onFrameProcessedEnd()
+        onFrameProcessedEnd(globalParams)
         # -------------------------------------------
 
-def onFrameProcessedEnd():
+def onFrameProcessedEnd(globalParams):
       # Show some stats..
       # Sort by value first
       if STATS_DEBUG_ENABLED == True:
@@ -872,13 +889,14 @@ def onFrameProcessedEnd():
                       assert False, "Ended processing"
 
 
-          print("Num saved pedestrian points: ", DEBUG_NumPedestriansPoints_Stats)
-def setupGlobals():
+          print("Num saved pedestrian points: ", globalParams.DEBUG_NumPedestriansPoints_Stats)
+
+def setupGlobals(globalParams):
   global ade20KToCarla
   global ade20KToNameAndCarlaId
   import numpy as np
   import pandas as pd
-  labelsMapping = pd.read_csv(ADE20K_TO_CARLA_MAPPING_CSV)
+  labelsMapping = pd.read_csv(globalParams.ADE20K_TO_CARLA_MAPPING_CSV)
   # labelsMapping.head()
   ADE20K_labels = np.array(labelsMapping['Idx'])
   ADE20K_labelNames = np.array(labelsMapping['Name'])
@@ -889,5 +907,8 @@ def setupGlobals():
 
 
 if __name__ == "__main__":
-  doPointCloudReconstruction(FILENAME_SAMPLE[0], FRAMEINDEX_MIN=0, FRAMEINDEX_MAX=5)
+    import pipeline_params
+    pipeline_params.globalParams.FRAMEINDEX_MIN = 0
+    pipeline_params.globalParams.FRAMEINDEX_MAX = 5
+    do_PointCloudReconstruction(pipeline_params.FILENAME_SAMPLE[0], pipeline_params.globalParams)
 

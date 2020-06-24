@@ -4,7 +4,7 @@
 import pickle
 import os
 from semanticSegmentation import test as SemanticSegSupport
-from pipeline_commons import *
+import pipeline_commons
 
 """
 def getLabelsOutputPathBySegmentName(segmentName):
@@ -20,17 +20,20 @@ import re
 import pickle
 outputDict = {}
 numFramesExtracted = 0
-def defineLabelsExtractor(numRgbImagesPerFrame):
+def defineLabelsExtractor(numRgbImagesPerFrame, globalParams):
     global numFramesExtracted
 
     # Checks if the input file to be segmented is already aggregated
-    def isFrameAlreadySegmented(inputFileName, pathToOutputFolder):
+    def doesFrameNeedsSegmentation(inputFileName, pathToOutputFolder):
         fileName = inputFileName[inputFileName.rfind('/'):]
-        res = re.findall(r'\d+', inputFileName)
+        res = re.findall(r'\d+', fileName)
         frame = int(res[0])
         index = int(res[1])
         pathName = os.path.join(pathToOutputFolder, f"labels_{frame}.pkl")
-        return os.path.exists(pathName)
+
+        doesFileNeedRecomputation = (os.path.exists(pathName) == False) or (globalParams.FORCE_RECOMPUTE == True)
+        frameWithingRange = (globalParams.FRAMEINDEX_MIN <= frame and frame <= globalParams.FRAMEINDEX_MAX) or (frame == 0) # We need first frame reference point !!
+        return (doesFileNeedRecomputation == True and frameWithingRange == True)
 
     def dictionaryExtractorFunc(fileName, predObj, pathToOutputFolder):
         # format frame_X_index_Y.jpg
@@ -54,20 +57,20 @@ def defineLabelsExtractor(numRgbImagesPerFrame):
             del outputDict[frame]
             numFramesExtracted += 1
 
-    return dictionaryExtractorFunc, isFrameAlreadySegmented
+    return dictionaryExtractorFunc, doesFrameNeedsSegmentation
 
 # Given a list of segments folders already processed by extracting stage, run segmentation on all input files, and return what was announced earlier
-def runSegmentationOps(segmentPath, forceRecompute=False):
+def runSegmentationOps(segmentPath, globalParams):
 
     # Step 1: Do segmentation on all
     # Define base segmentation modelBaseParams such as model and configs
-    segmentName = extractSegmentNameFromPath(segmentPath)
-    print(f"================= Segment {segmentName} ===============")
+    segmentName = pipeline_commons.extractSegmentNameFromPath(segmentPath)
+    #print(f"================= Segment {segmentName} ===============")
 
     # Setup segmentation for this segment from dataset
-    segmentFiles_InputPath      = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName, SEG_INPUT_IMAGES_RGBFOLDER)
-    segmentFiles_OutputPath     = os.path.join(SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUT_LABELS_SEGFOLDER)
-    segmentFiles_OutputCompPath = os.path.join(SEG_OUTPUTCOMP_LABELS_BASEFILEPATH, segmentName, SEG_OUTPUTCOMP_LABELS_RGBFOLDER)
+    segmentFiles_InputPath      = os.path.join(globalParams.SEG_INPUT_IMAGES_BASEPATH, segmentName, globalParams.SEG_INPUT_IMAGES_RGBFOLDER)
+    segmentFiles_OutputPath     = os.path.join(globalParams.SEG_OUTPUT_LABELS_BASEFILEPATH, segmentName, globalParams.SEG_OUTPUT_LABELS_SEGFOLDER)
+    segmentFiles_OutputCompPath = os.path.join(globalParams.SEG_OUTPUTCOMP_LABELS_BASEFILEPATH, segmentName, globalParams.SEG_OUTPUTCOMP_LABELS_RGBFOLDER)
 
     modelParams = []
     modelParams.extend(["--imgs", segmentFiles_InputPath])
@@ -83,8 +86,8 @@ def runSegmentationOps(segmentPath, forceRecompute=False):
     modelParams.extend(["DATASET.scaleFactor", '2.0'])
 
     # Create functors and run extraction
-    extractFunctor, decisionFunctor = defineLabelsExtractor(5)  # 5 images per frame expected
-    SemanticSegSupport.runTestSample(modelParams, extractFunctor, decisionFunctor, forceRecompute=forceRecompute)
+    extractFunctor, decisionFunctor = defineLabelsExtractor(5, globalParams)  # 5 images per frame expected
+    SemanticSegSupport.runTestSample(modelParams, extractFunctor, decisionFunctor, globalParams.FORCE_RECOMPUTE)
 
     # The output of the above process are the pkl files labels_frameId, a dictionary indexed by camera id (starting from 0)
     # where each entry contains the segmented labels for that picture in the original image space (height,width)
@@ -99,5 +102,9 @@ def runSegmentationOps(segmentPath, forceRecompute=False):
 SAVE_ONLY_LABELS = False #
 
 if __name__ == "__main__":
-    runSegmentationOps(FILENAME_SAMPLE[0], forceRecompute=True)
+    import pipeline_params
+    pipeline_params.globalParams.FRAMEINDEX_MIN = 0
+    pipeline_params.globalParams.FRAMEINDEX_MAX = 5
+    runSegmentationOps(pipeline_params.FILENAME_SAMPLE[0], pipeline_params.globalParams)
+
 

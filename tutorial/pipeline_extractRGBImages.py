@@ -9,7 +9,6 @@ import itertools
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import sys
-from pipeline_commons import *
 
 tf.enable_eager_execution()
 from waymo_open_dataset.utils import range_image_utils
@@ -17,16 +16,18 @@ from waymo_open_dataset.utils import transform_utils
 from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
+import pipeline_commons
+
 def getImagePath(destFolder, frameIndex, cameraIndex):
     return os.path.join(destFolder, f'frame_{frameIndex}_img_{cameraIndex}.jpg')
 
 # Gather all images from a frame to a dictionary
-def gatherImagesFromFrame(frameData, frameIndex, datasetPictures, outputFolder):
+def gatherImagesFromFrame(frameData, frameIndex, datasetPictures, outputFolder, forceRecompute = False):
     localImagesDict = {}
 
-    images = getSortedImagesFromFrameData(frameData)
+    images = pipeline_commons.getSortedImagesFromFrameData(frameData)
     for index,img in enumerate(images):
-        if os.path.exists(getImagePath(outputFolder, frameIndex, index)):
+        if os.path.exists(getImagePath(outputFolder, frameIndex, index)) and forceRecompute != True:
             continue
 
         imageBytes = img.image
@@ -41,7 +42,7 @@ import shutil
 # Save all RGB images in the dictionary { frame index I : { img index i : data } } to files like: frame_I_i.jpg
 def saveImagesAsSegmentationInput(allRGBImagesDict, destFolder):
     if not os.path.exists(destFolder):
-        os.mkdir(destFolder)
+        os.makedirs(destFolder, mode=0o777, exist_ok=True)
 
     from PIL import Image
     for frameIndex, imagesPerFrame in allRGBImagesDict.items():
@@ -51,8 +52,8 @@ def saveImagesAsSegmentationInput(allRGBImagesDict, destFolder):
             image.save(imagePath)
 
 # Given a list of recoded segments from WAYMO, extract and save the images to semanticSegmentation/INPUT folder
-def do_RGBExtraction(segmentPath):
-    segmentName = extractSegmentNameFromPath(segmentPath)
+def do_RGBExtraction(segmentPath, globalParams):
+    segmentName = pipeline_commons.extractSegmentNameFromPath(segmentPath)
     assert os.path.exists(segmentPath), f'The file you specified {segmentPath} doesn\'t exist !'
 
     # 1. Iterate over frame by frame of a segment
@@ -65,19 +66,30 @@ def do_RGBExtraction(segmentPath):
 
     allRGBImagesDict = {}
     for index, data in enumerate(dataset):
-        print(f"Parsing frame {index}/{numFrames}")
+        if (globalParams.FRAMEINDEX_MIN > index) and (index != 0): # We need first frame reference point !!:
+            continue
+        if globalParams.FRAMEINDEX_MAX < index:
+            break
+
+        if (index % pipeline_commons.FRAMESINFO_IMGS_DEBUG_RATE == 0):
+            pipeline_commons.globalLogger.info(f"Parsing frame {index}/{numFrames}")
+
         # Read the frame in bytes
         frame = open_dataset.Frame()
         frame.ParseFromString(bytearray(data.numpy()))
 
         # Gather and decode all RGB images from this frame to the global store
-        segInputFolder = os.path.join(SEG_INPUT_IMAGES_BASEPATH, segmentName, SEG_INPUT_IMAGES_RGBFOLDER)
-        gatherImagesFromFrame(frame, index, allRGBImagesDict, segInputFolder)
+        segInputFolder = os.path.join(globalParams.SEG_INPUT_IMAGES_BASEPATH, segmentName, globalParams.SEG_INPUT_IMAGES_RGBFOLDER)
+        gatherImagesFromFrame(frame, index, allRGBImagesDict, segInputFolder, forceRecompute=globalParams.FORCE_RECOMPUTE)
 
         saveImagesAsSegmentationInput(allRGBImagesDict, segInputFolder)
 
 # Use do_extraction from exterior and let main just for testing purposes
 # Or refactor the code with argparse
 if __name__ == "__main__":  # 'frames']
-    do_RGBExtraction(FILENAME_SAMPLE[0])
+    import pipeline_params
+    pipeline_params.globalParams.FRAMEINDEX_MIN = 0
+    pipeline_params.globalParams.FRAMEINDEX_MAX = 5
+
+    do_RGBExtraction(pipeline_params.FILENAME_SAMPLE[0], pipeline_params.globalParams)
 
