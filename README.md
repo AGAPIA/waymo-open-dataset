@@ -11,6 +11,18 @@
  --forceRecompute 0    # Do you want to recompute things if the resurces are already on disk ?
  --DEBUG_MIN_FRAME 0   # Put some values here if you want to cut the process only between some frames (currently waymo has up to 199 frames on each segment)
  --DEBUG_MAX_FRAME 99999 
+ 
+ Consider that the list of segments in the WAYMOscenesToSolve.txt is:
+ /home/ciprian/Downloads/Waymo/segment-10241508783381919015_2889_360_2909_360_with_camera_labels.tfrecord
+/home/ciprian/Downloads/Waymo/segment-1022527355599519580_4866_960_4886_960_with_camera_labels.tfrecord
+
+This means that the pipeline process will produce to ouptut folders based on parameters in WAYMOOUTMIN si WAYMOOUTPUT. Both contains two folders, one for each input segment:10241508783381919015_2889_360_2909_360 and 1022527355599519580_4866_960_4886_960. THe different is that in WAYMOOUTMIN it will contain only some minimal processed things to understand the scene:
+
+* cars.p = a dictionary of (framei_id, car_id) = {bounding box and velocity of the car). Basically contaiing all cars trajectories during the scene
+* people.p = similar to the above 
+* combined_carla_moving.ply - A point cloud file of the environment reconstructed from the Lidar. Colors are RGB
+* combined_carla 
+
  ```
 
 # Waymo Open Dataset
