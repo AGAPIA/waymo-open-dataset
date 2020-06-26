@@ -23,8 +23,14 @@ This means that the pipeline process will produce to ouptut folders based on par
 * combined_carla_moving.ply - A point cloud file of the environment reconstructed from the Lidar. Colors are RGB, it contains inside the segmentation label for each value
 * combined_carla_moving_segColor.ply - This will contain the environment with segmentation color, very useful for debugging ! 
  ```
+ - To sort by pedestrians motion importance, i.e. how dense are scenes containing pedestrians we implemented a script in tutorial/scenesPedestrianInfoExtractor.py . You can use that to get a folder and output a csv file with sorted by "importance" the scenes.
  
- NOTE: The output segmentation labels and colors are in CARLA space.
+### IMPORTANT NOTES: 
+ - The output segmentation labels and colors are in CARLA space.
+ - This folder contains already prebuilt files for Tensorflow 2.1 (which works with Cuda 10.1 as the segmentation fork). If you want to use a different folder, just follow the original instructions to install it again.
+
+
+ 
 
 # Waymo Open Dataset
 
