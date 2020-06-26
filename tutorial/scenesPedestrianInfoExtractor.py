@@ -21,11 +21,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import sys
 from pipeline_commons import *
+import pipeline_params
 import pickle
 from pathlib import Path
 import pandas as pd
+import pickle
 
-tf.enable_eager_execution()
+#tf.enable_eager_execution()
 from waymo_open_dataset.utils import range_image_utils
 from waymo_open_dataset.utils import transform_utils
 from waymo_open_dataset.utils import  frame_utils
@@ -42,6 +44,9 @@ def scoreScene(fullPath):
     numFramesInSegment = 0
     for frameIndex, data in enumerate(dataset):
         numFramesInSegment += 1
+
+        if frameIndex % 100 == 0:
+            print("..Processing frame index ", frameIndex)
 
         # Read the frame in bytes
         frame = open_dataset.Frame()
@@ -73,14 +78,19 @@ def scoreScene(fullPath):
 
 def doFindInterestingScenes(baseDatasetFolders):
     mapSceneToScore = {} # 'scenepath' : score
+    total_processed = 0
     for folder in baseDatasetFolders:
         print(f"Analyzing folder {folder}")
         print("===================================")
         for path in Path(folder).rglob('*.tfrecord'):
-            print("Analyzing segment ", path)
+            total_processed += 1
+            #if total_processed > 4:
+            #    break
+
             #print(path.name)
             fullPath = path.absolute()
             #print(fullPath)
+            print(f"#### Analyzing segment path index {total_processed} from path {fullPath}")
 
             numPed, pedDensity = scoreScene(fullPath)
             if numPed >= MIN_PEDESTRIANS and pedDensity > MIN_DENSITY: # Is it valid ?
@@ -88,13 +98,19 @@ def doFindInterestingScenes(baseDatasetFolders):
 
             print(f"Score {fullPath} is: numPedestrians = {numPed} pedestrians density = {pedDensity}")
 
+    print(f"Processed {total_processed} scenes. Starting to save the final csv...")
+
+    with open("temp_mapSceneToScore", "wb") as tempFile:
+        pickle.dump(mapSceneToScore, tempFile, protocol=2)
+
     mapSceneToScore = sorted(mapSceneToScore.items(), key=lambda item: item[1][1], reverse=True) # Sorting by density
 
     scenesScoringData = { 'Paths' : [v[0] for v in mapSceneToScore],
                           'NumPedestrians' : [v[1][0] for v in mapSceneToScore],
                           'PedestriansDensity' : [v[1][1] for v in mapSceneToScore]}
     scenesScoringDataFrame = pd.DataFrame(scenesScoringData, columns=['Paths', 'NumPedestrians', 'PedestriansDensity'])
-    scenesScoringDataFrame.to_csv (OUTPUT_SCENES_FILTERING_PATH, index = False, header=True)
+    scenesScoringDataFrame.to_csv (pipeline_params.globalParams.OUTPUT_SCENES_FILTERING_PATH, index = False, header=True)
 
 if __name__ == "__main__":
-    doFindInterestingScenes(FOLDER_WAYMODATASET_SAMPLE)
+    pipeline_params.globalParams.OUTPUT_SCENES_FILTERING_PATH = "scenes.csv"
+    doFindInterestingScenes([sys.argv[1]])
