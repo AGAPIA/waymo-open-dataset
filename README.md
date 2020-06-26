@@ -20,10 +20,11 @@ This means that the pipeline process will produce to ouptut folders based on par
 
 * cars.p = a dictionary of (framei_id, car_id) = {bounding box and velocity of the car). Basically contaiing all cars trajectories during the scene
 * people.p = similar to the above 
-* combined_carla_moving.ply - A point cloud file of the environment reconstructed from the Lidar. Colors are RGB
-* combined_carla 
-
+* combined_carla_moving.ply - A point cloud file of the environment reconstructed from the Lidar. Colors are RGB, it contains inside the segmentation label for each value
+* combined_carla_moving_segColor.ply - This will contain the environment with segmentation color, very useful for debugging ! 
  ```
+ 
+ NOTE: The output segmentation labels and colors are in CARLA space.
 
 # Waymo Open Dataset
 
