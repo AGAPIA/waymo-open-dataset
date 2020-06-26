@@ -1,3 +1,17 @@
+# What i did on top of the existing code:
+
+- Most important: segmentation method to put each LIDAR point cloud point on a certain label category. For this we use a forked version of ADE20K model trained available here: https://github.com/AGAPIA/semantic-segmentation-pytorch 
+- if you look in Tutorial folder, there is a pipeline process that does all the job for taking a folder of datasegments from Waymo and producing the output. 
+- Each pipeline stage is described at the top of each file, the main file that aggregates everything is pipeline_all.py: Following we describe its parameters and how to control things:
+
+ --cleanOutputPath /home/ciprian/WAYMOOUTPUTMIN   # Where to write the FULL output (rgb images, segmentation images for comparison, etc)
+ --fullOutputPath /home/ciprian/WAYMOOUTPUT   # Where to write only the files needed (Explained below what are those files and what they contain)
+ --scenesFile /home/ciprian/WAYMOscenesToSolve.txt  # The path to a file contianing on each line the path to a single segment folder that you want to be processed by the pipeline
+ --forceRecompute 0    # Do you want to recompute things if the resurces are already on disk ?
+ --DEBUG_MIN_FRAME 0   # Put some values here if you want to cut the process only between some frames (currently waymo has up to 199 frames on each segment)
+ --DEBUG_MAX_FRAME 99999 
+ 
+
 # Waymo Open Dataset
 
 The Waymo Open Dataset is comprised of high-resolution sensor data collected by Waymo self-driving cars in a wide variety of conditions. We’re releasing this dataset publicly to aid the research community in making advancements in machine perception and self-driving technology.
