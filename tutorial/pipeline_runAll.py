@@ -44,6 +44,8 @@ if __name__ == "__main__":
         # Init the output base folder
         pipeline_params.globalParams.reinitParams(baseOutputPath=aargs.fullOutputPath, minimalOutputPath=aargs.cleanOutputPath)
         pipeline_params.globalParams.FORCE_RECOMPUTE = True if aargs.forceRecompute == 1 else False
+        pipeline_params.globalParams.USE_GPU_FOR_SEGMENTATION = False # Disabled because mine is weak (too low on memory..)
+
          # Use these debug features to cut only sections of data
 
         # Read the segment to analyze on this run

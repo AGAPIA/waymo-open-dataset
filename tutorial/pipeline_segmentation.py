@@ -74,6 +74,10 @@ def runSegmentationOps(segmentPath, globalParams):
 
     modelParams = []
     modelParams.extend(["--imgs", segmentFiles_InputPath])
+    modelParams.extend(["--imgs", segmentFiles_InputPath])
+    if globalParams.USE_GPU_FOR_SEGMENTATION == False:
+        modelParams.extend(["--gpu", "-1"])
+
     modelConfigPath = "semanticSegmentation/config/ade20k-resnet50dilated-ppm_deepsup.yaml"
     modelParams.extend(["--cfg", modelConfigPath])
     modelDirPath = "semanticSegmentation/ade20k-resnet50dilated-ppm_deepsup"

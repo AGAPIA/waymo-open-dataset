@@ -44,6 +44,9 @@ class GlobalParams():
         # Even if the resource exists, should I recompute them ?
         self.FORCE_RECOMPUTE = True
 
+        # If you really want to use GPU for segmentation...if you have a strong one :)
+        self.USE_GPU_FOR_SEGMENTATION = True
+
 globalParams = GlobalParams()
 
 

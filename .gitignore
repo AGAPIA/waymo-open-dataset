@@ -1,3 +1,6 @@
 /logfile.txt
 *.pyc
 /.idea/runConfigurations/.gitignore
+__pycache__
+utils/__pycache__
+
