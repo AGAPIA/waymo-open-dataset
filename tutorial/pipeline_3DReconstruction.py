@@ -29,7 +29,7 @@ def do_3DReconstruction(segmentPath, globalParams):
 
     options = DatasetOptions()
     reconstruction, people_rec, cars_rec, scale, ped_dict, cars_2D, people_2D, valid_ids, cars_dict, init_frames, init_frames_cars = ReconstructionUtils.reconstruct3D_ply(
-        folderOutput, recalculate=globalParams.FORCE_RECOMPUTE, datasetOptions=options)
+        folderOutput, local_scale_x=globalParams.SCALE_USED_IN_FINAL_RECONSTRUCTION, recalculate=globalParams.FORCE_RECOMPUTE, datasetOptions=options, params=globalParams)
 
 
 if __name__ == "__main__":

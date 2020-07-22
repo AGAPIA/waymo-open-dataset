@@ -44,8 +44,32 @@ class GlobalParams():
         # Even if the resource exists, should I recompute them ?
         self.FORCE_RECOMPUTE = True
 
+        # Some metadata needed for segmentation process
+        self.SEGMENTATION_SETUP_DATA_PATH = "semanticSegmentation" # default folder...
+
         # If you really want to use GPU for segmentation...if you have a strong one :)
-        self.USE_GPU_FOR_SEGMENTATION = True
+        self.USE_GPU_FOR_SEGMENTATION = 0 # Id 0 by default
+
+        # Whether to ignore or not cars and pedestrians in point cloud reconstructions
+        self.IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES = True
+
+        self.BBOX_EXTENSION_FOR_PEDESTRIANS_AND_CARS = 1.25
+
+        # see args for doc
+        self.POINT_CLOUD_FOR_MOTION_FRAMES = False
+
+        # Keep original floating points.
+        # Otherwise we do voxelization which will lower the quality but increase speed
+        # This should be used mostly for rendering / vis purposes
+        self.KEEP_ORIGINAL_FLOATING_POINTS = False
+
+        # Filter the noise either with VOXElization or KNN. voxelization only rmeove noisy points, Knn also votes for labels
+        self.NOISE_FILTERING_WITH_VOXELIZATION = False
+        self.NOISE_FILTERING_WITH_KNN = False
+        self.NOISE_FILTERING_WITH_KNNStatistical = False
+
+        # The scape up/down value (base is 1.0) used to recompose the final ply scenes from frames ply files
+        self.SCALE_USED_IN_FINAL_RECONSTRUCTION = 1.0
 
 globalParams = GlobalParams()
 

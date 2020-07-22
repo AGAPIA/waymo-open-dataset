@@ -46,14 +46,14 @@ STATS_DEBUG_ENABLED = False
 IS_RANGE_COLOR_ShOWING_ENABLED = False # DEbug to see range projections on images plot
 returnsIndicesToUse = [0, 1] #[0, 1] # Should we use just first laser return or both ?
 cameraindices_to_use = [0, 1, 2, 3, 4] # The camera indices to project on
-DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE = False
+DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE = True
 
 # Spatial octtree partitioning
 VOXELIZATION_FOR_ARTEFACTS_ENABLED = False
 VOXELIZATION_SCALE = 1.0
 VOXELIZATION_SCALE_INV = (1.0/VOXELIZATION_SCALE)
 #NUM_UNITS_FOR_RESCALING = max(10, math.ceil(VOXELIZATION_SCALE))
-KDTREE_FOR_ARTEFACTS_ENABLED = False
+KDTREE_FOR_ARTEFACTS_ENABLED = True
 
 IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES = True
 
@@ -451,7 +451,8 @@ def read_3D_pointcloud(filename, file_end='/dense/fused_text.ply'):
 
 # Aggregates all points given in the output dictionary, for each 3D point cloud will add the R G B in the scene and the segmentation label
 # unprojectedPoints is True if the points have no label or camera projection image
-def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMERA_INDEX, rgbData = None, segData = None):
+# useEnvironmentPoints = True if you want to use environment points, False if motion points
+def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMERA_INDEX, rgbData = None, segData = None, useEnvironmentPoints = True):
     global DEBUG_origSegLabel_Stats
     global DEBUG_outputSegLabel_Stats
 
@@ -481,7 +482,7 @@ def processPoints(points3D_and_cp, outPlyDataPoints, imageCameraIndex = NO_CAMER
                 DEBUG_origSegLabel_Stats[origLabel] += 1
 
             label = ade20KToCarla[origLabel] # Move to CARLA segmentation values
-            if DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE == True and (not ReconstructionUtils.isUsefulLabelForReconstruction(label)):
+            if DISCARD_ALL_IGNORED_LABELS_FROM_SOURCE == True and (not ReconstructionUtils.isUsefulLabelForReconstruction(label, useEnvironment=useEnvironmentPoints)):
                 continue
 
             """
@@ -560,7 +561,7 @@ def convertDictPointsToList(inPlyDataPoints):
             DEBUG_X_MAX_COORD = max(x, DEBUG_X_MAX_COORD)
 
     # Step 2: Iterate over all points and take the mode of the labels around a radius
-    MAX_CLOSEST_POINT_TO_EVALUATE = 10
+    MAX_CLOSEST_POINT_TO_EVALUATE = 30
     MAX_DISTANCE = 0.6 # meters
     MIN_COUNT_TO_VALIDATE_NEW_LABEL = 3
 
@@ -632,7 +633,8 @@ def convertDictPointsToList(inPlyDataPoints):
     return outPlyDataPoints
 #-----------------------------------------------
 
-def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferencePointTransform):
+# useEnvPoints = True if you want to use environment point cloud, False if you want to use motion points point cloud
+def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferencePointTransform, useEnvPoints = True):
     # Get the range images, camera projects from the frame data
     (range_images, camera_projections, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
 
@@ -680,7 +682,8 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
     points_byreturn     = [points_all_ri0, points_all_ri2]
     cp_points_byreturn  = [cp_points_all_ri0, cp_points_all_ri2]
 
-
+    # Create a mask of all point cloud points that are inside a box containing either a pedestrian or car and delete it
+    # Acts as an inverse if useEnvPoints is False, such that you can get only the points inside those boxes !
     if IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES:
         lidarLabels = frame.laser_labels
         allBoxes = np.zeros((len(lidarLabels), 7))
@@ -691,10 +694,15 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
 
         for returnIndex in returnsIndicesToUse:
             points = points_byreturn[returnIndex]
-            mask_inBoxOfPedestrianOrCar = np.logical_not(box_utils.is_within_any_box_3d(points, allBoxes))
+
+            if useEnvPoints == True:
+                mask_inBoxOfPedestrianOrCar = np.logical_not(box_utils.is_within_any_box_3d(points, allBoxes))
+            else:
+                mask_inBoxOfPedestrianOrCar = box_utils.is_within_any_box_3d(points, allBoxes)
 
             points_byreturn[returnIndex] = points_byreturn[returnIndex][mask_inBoxOfPedestrianOrCar]
             cp_points_byreturn[returnIndex] = cp_points_byreturn[returnIndex][mask_inBoxOfPedestrianOrCar]
+
 
 
     # Last step: convert all points from vehicle frame space to world space - relative to the first vehicle frame pose
@@ -721,7 +729,7 @@ def getPointCloudPointsAndCameraProjections(frame, thisFramePose, worldToReferen
     return points_byreturn, cp_points_byreturn
 
 
-def do_PointCloudReconstruction(segmentPath, globalParams):
+def do_PointCloudReconstruction(segmentPath, globalParams, useEnvironmentPoints = True):
     setupGlobals(globalParams)
     # These are the transformation from world frame to the reference vehicle frame (first pose of the vehicle in the world)
     worldToReferencePointTransform = None
@@ -746,11 +754,11 @@ def do_PointCloudReconstruction(segmentPath, globalParams):
 
         # Check if the files already exists
         folderOutput    = os.path.join(globalParams.POINTCLOUD_OUTPUT_BASEFILEPATH, segmentName)
-        outputFramePath_rgb =  os.path.join(folderOutput, ("{0:05d}.ply").format(frameIndex))
-        outputFramePath_seg =  os.path.join(folderOutput, ("{0:05d}_seg.ply").format(frameIndex))
-        outputFramePath_segColored = os.path.join(folderOutput, ("{0:05d}_segColor.ply").format(frameIndex))
+        outputFramePath_rgb =  os.path.join(folderOutput, ("{0:05d}.ply").format(frameIndex) if useEnvironmentPoints == True else ("{0:05d}_motion.ply").format(frameIndex))
+        outputFramePath_seg =  os.path.join(folderOutput, ("{0:05d}_seg.ply").format(frameIndex) if useEnvironmentPoints == True else ("{0:05d}_motionseg.ply").format(frameIndex))
+        outputFramePath_segColored = os.path.join(folderOutput, ("{0:05d}_segColor.ply").format(frameIndex) if useEnvironmentPoints == True else ("{0:05d}_motionsegColor.ply").format(frameIndex))
 
-        if globalParams.FORCE_RECOMPUTE == False and \
+        if frameIndex != 0 and globalParams.FORCE_RECOMPUTE == False and \
             os.path.exists(outputFramePath_rgb) and \
             os.path.exists(outputFramePath_seg) and \
             os.path.exists(outputFramePath_segColored):
@@ -775,7 +783,7 @@ def do_PointCloudReconstruction(segmentPath, globalParams):
 
         # Step 2: Process the frame and get the 3d lidar points and camera projected points from the frame, for each return
         # -------------------------------------------
-        points_byreturn, cp_points_byreturn = getPointCloudPointsAndCameraProjections(frame, frame_thisPose, worldToReferencePointTransform)
+        points_byreturn, cp_points_byreturn = getPointCloudPointsAndCameraProjections(frame, frame_thisPose, worldToReferencePointTransform, useEnvPoints=useEnvironmentPoints)
         # -------------------------------------------
 
 
@@ -832,7 +840,7 @@ def do_PointCloudReconstruction(segmentPath, globalParams):
                     points3D_and_cp = tf.concat([points_3D_all_tensor_camera, cp_points_all_tensor_camera_byProjIndex], axis=-1).numpy()
 
                     # Gather these points in the output dictionary
-                    processPoints(points3D_and_cp, plyDataPoints, imageCameraIndex=image_index, rgbData = RGB_Data, segData = SEG_Data)
+                    processPoints(points3D_and_cp, plyDataPoints, imageCameraIndex=image_index, rgbData = RGB_Data, segData = SEG_Data, useEnvironmentPoints=useEnvironmentPoints)
 
                     # Demo showing...
                     if IS_RANGE_COLOR_ShOWING_ENABLED:
@@ -894,8 +902,13 @@ def onFrameProcessedEnd(globalParams):
 def setupGlobals(globalParams):
   global ade20KToCarla
   global ade20KToNameAndCarlaId
+  global IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES
+  global BBOX_EXTENSION_F
   import numpy as np
   import pandas as pd
+  import os
+  #print("CURRENT PATH IS ", os.path.abspath(os.getcwd()))
+
   labelsMapping = pd.read_csv(globalParams.ADE20K_TO_CARLA_MAPPING_CSV)
   # labelsMapping.head()
   ADE20K_labels = np.array(labelsMapping['Idx'])
@@ -905,10 +918,12 @@ def setupGlobals(globalParams):
   ade20KToCarla[0] = 0
   ade20KToNameAndCarlaId = {ADE20K_labels[k]: (ADE20K_labelNames[k], CARLA_labels[k]) for k in range(len(ADE20K_labels))}
 
+  IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES = False if globalParams.IGNORE_POINTS_IN_CAR_OR_PEDESTRIAN_BBOXES == 0 else True
+  BBOX_EXTENSION_F = globalParams.BBOX_EXTENSION_FOR_PEDESTRIANS_AND_CARS
 
 if __name__ == "__main__":
     import pipeline_params
-    pipeline_params.globalParams.FRAMEINDEX_MIN = 0
-    pipeline_params.globalParams.FRAMEINDEX_MAX = 5
+    pipeline_params.globalParams.FRAMEINDEX_MIN = 10
+    pipeline_params.globalParams.FRAMEINDEX_MAX = 10
     do_PointCloudReconstruction(pipeline_params.FILENAME_SAMPLE[0], pipeline_params.globalParams)
 

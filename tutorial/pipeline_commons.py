@@ -9,7 +9,11 @@ import tensorflow as tf
 import logging
 #logging.basicConfig(level=logging.INFO)
 
+# DEELEEEEEEETE THIIIIIS
 sys.path.append("../commonUtils") #os.path.join(os.path.dirname(__file__), "lib"))
+sys.path.append("/home/ciprian/cluster-ciprian/Work/RLAgent/waymo-open-dataset")
+sys.path.append("/home/ciprian/Work/RLAgent/waymo-open-dataset")
+
 
 # Note: the semantic segmentation code has its own logger defined in utils.py/setup_logger func
 globalLogger = None
@@ -44,7 +48,8 @@ def getNumFramesInSegmentPath(segmentPath):
     dataset = tf.data.TFRecordDataset(segmentPath, compression_type='')
 
     numFrames = 0
-    for index, data in enumerate(dataset):
+    dataset = dataset.enumerate()
+    for index, data in dataset.as_numpy_iterator():
         numFrames += 1
     #print(f"Num frames in {segmentName}: ", numFrames)
     return numFrames

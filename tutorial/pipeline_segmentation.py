@@ -74,19 +74,20 @@ def runSegmentationOps(segmentPath, globalParams):
 
     modelParams = []
     modelParams.extend(["--imgs", segmentFiles_InputPath])
-    modelParams.extend(["--imgs", segmentFiles_InputPath])
-    if globalParams.USE_GPU_FOR_SEGMENTATION == False:
-        modelParams.extend(["--gpu", "-1"])
+    modelParams.extend(["--resourcesFolderPath", globalParams.SEGMENTATION_SETUP_DATA_PATH])
 
-    modelConfigPath = "semanticSegmentation/config/ade20k-resnet50dilated-ppm_deepsup.yaml"
+    if globalParams.USE_GPU_FOR_SEGMENTATION is not None:
+        modelParams.extend(["--gpu", str(globalParams.USE_GPU_FOR_SEGMENTATION)])
+
+    modelConfigPath = os.path.join(globalParams.SEGMENTATION_SETUP_DATA_PATH, "config/ade20k-resnet50dilated-ppm_deepsup.yaml")
     modelParams.extend(["--cfg", modelConfigPath])
-    modelDirPath = "semanticSegmentation/ade20k-resnet50dilated-ppm_deepsup"
+    modelDirPath = os.path.join(globalParams.SEGMENTATION_SETUP_DATA_PATH, "ade20k-resnet50dilated-ppm_deepsup")
     modelCheckPoint = "epoch_20.pth"
     modelParams.extend(["DIR", modelDirPath])
     modelParams.extend(["TEST.checkpoint", modelCheckPoint])
     modelParams.extend(["TEST.result", segmentFiles_OutputPath])
     modelParams.extend(["TEST.resultComp", segmentFiles_OutputCompPath])
-    modelParams.extend(["TEST.saveOnlyLabels", '0'])
+    modelParams.extend(["TEST.saveOnlyLabels", '1'])
     modelParams.extend(["DATASET.scaleFactor", '2.0'])
 
     # Create functors and run extraction
