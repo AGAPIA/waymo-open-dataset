@@ -13,7 +13,7 @@
 Some other very useful scripts:
 
 - To sort by pedestrians motion importance, i.e. how dense are scenes containing pedestrians we implemented a script in tutorial/scenesPedestrianInfoExtractor.py . You can use that to get a folder and output a csv file with sorted by "importance" the scenes.
-- To play with point cloud visualization, conversion from Carla to Open3D ply formats, play with Open3D vizualization in place over point clouds use tutorial/PointcloudDemo.py script
+- To play with point cloud visualization, conversion from Carla to Open3D ply formats, play with Open3D vizualization in place over point clouds use tutorial/PointcloudDemo.py script.
 
 
  
