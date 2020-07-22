@@ -11,12 +11,16 @@
 - parallization options on top of Ray and multi-GPU
 
 Difference between versions / parameters:
+- Image of High-res point cloud noise removed by KnnStatistical
 -![Image of High-res point cloud noise removed by KnnStatistical](https://github.com/AGAPIA/waymo-open-dataset/blob/master/docs/images/higheRes_noiseRemoved.png)
 
+- Image of High-res point cloud with noise
 -![Image of High-res point cloud with noise](https://github.com/AGAPIA/waymo-open-dataset/blob/master/docs/images/highRes_withNoise.png)
 
+- Image of Low-res point cloud with noise removed by KnnStatistical
 -![Image of Low-res point cloud with noise removed by KnnStatistical](https://github.com/AGAPIA/waymo-open-dataset/blob/master/docs/images/lowRes_removedNoise.png)
 
+-Image of Low-res point cloud with noise
 -![Image of Low-res point cloud with noise](https://github.com/AGAPIA/waymo-open-dataset/blob/master/docs/images/lowRes_WithNoise.png)
 
 
