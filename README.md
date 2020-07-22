@@ -10,6 +10,13 @@
 - debugging frames capabilities to simplify things
 - parallization options on top of Ray and multi-GPU
 
+Difference between versions / parameters:
+-![Image of High-res point cloud with noise](https://github.com/AGAPIA/waymo-open-dataset/blob/master/docs/images/lowRes_withNoise.png)
+-![Image of High-res point cloud with noise removed by KnnStatistical](https://github.com/AGAPIA/waymo-open-dataset/blob/master/docs/images/lowRes_remvedNoise.png)
+
+-![Image of High-res point cloud with noise](https://github.com/AGAPIA/waymo-open-dataset/blob/master/docs/images/highRes_withNoise.png)
+-![Image of High-res point cloud noise removed by KnnStatistical](https://github.com/AGAPIA/waymo-open-dataset/blob/master/docs/images/highRes_removedNoise.png)
+
 Some other very useful scripts:
 
 - To sort by pedestrians motion importance, i.e. how dense are scenes containing pedestrians we implemented a script in tutorial/scenesPedestrianInfoExtractor.py . You can use that to get a folder and output a csv file with sorted by "importance" the scenes.
