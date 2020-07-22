@@ -2,28 +2,20 @@
 
 - Most important: segmentation method to put each LIDAR point cloud point on a certain label category. For this we use a forked version of ADE20K model trained available here: https://github.com/AGAPIA/semantic-segmentation-pytorch 
 - if you look in Tutorial folder, there is a pipeline process that does all the job for taking a folder of datasegments from Waymo and producing the output. 
-- Each pipeline stage is described at the top of each file, the main file that aggregates everything is pipeline_all.py: Following we describe its parameters and how to control things:
+- Each pipeline stage is described at the top of each file, the main file that aggregates everything is pipeline_all.py the parameters description in the file to understand how to control things. What we have now are:
 
-```
- --cleanOutputPath /home/ciprian/WAYMOOUTPUTMIN   # Where to write the FULL output (rgb images, segmentation images for comparison, etc)
- --fullOutputPath /home/ciprian/WAYMOOUTPUT   # Where to write only the files needed (Explained below what are those files and what they contain)
- --scenesFile /home/ciprian/WAYMOscenesToSolve.txt  # The path to a file contianing on each line the path to a single segment folder that you want to be processed by the pipeline
- --forceRecompute 0    # Do you want to recompute things if the resurces are already on disk ?
- --DEBUG_MIN_FRAME 0   # Put some values here if you want to cut the process only between some frames (currently waymo has up to 199 frames on each segment)
- --DEBUG_MAX_FRAME 99999 
- 
- Consider that the list of segments in the WAYMOscenesToSolve.txt is:
- /home/ciprian/Downloads/Waymo/segment-10241508783381919015_2889_360_2909_360_with_camera_labels.tfrecord
-/home/ciprian/Downloads/Waymo/segment-1022527355599519580_4866_960_4886_960_with_camera_labels.tfrecord
+- options to produce very high-res point clouds by storing point cloud in float space
+- produce motion frames by aggreating motion data (Cars and pedestrians) with environment
+- clear noise using either KnnStatistical (best method now) or Voxelization
+- debugging frames capabilities to simplify things
+- parallization options on top of Ray and multi-GPU
 
-This means that the pipeline process will produce to ouptut folders based on parameters in WAYMOOUTMIN si WAYMOOUTPUT. Both contains two folders, one for each input segment:10241508783381919015_2889_360_2909_360 and 1022527355599519580_4866_960_4886_960. THe different is that in WAYMOOUTMIN it will contain only some minimal processed things to understand the scene:
+Some other very useful scripts:
 
-* cars.p = a dictionary of (framei_id, car_id) = {bounding box and velocity of the car). Basically contaiing all cars trajectories during the scene
-* people.p = similar to the above 
-* combined_carla_moving.ply - A point cloud file of the environment reconstructed from the Lidar. Colors are RGB, it contains inside the segmentation label for each value
-* combined_carla_moving_segColor.ply - This will contain the environment with segmentation color, very useful for debugging ! 
- ```
- - To sort by pedestrians motion importance, i.e. how dense are scenes containing pedestrians we implemented a script in tutorial/scenesPedestrianInfoExtractor.py . You can use that to get a folder and output a csv file with sorted by "importance" the scenes.
+- To sort by pedestrians motion importance, i.e. how dense are scenes containing pedestrians we implemented a script in tutorial/scenesPedestrianInfoExtractor.py . You can use that to get a folder and output a csv file with sorted by "importance" the scenes.
+- To play with point cloud visualization, conversion from Carla to Open3D ply formats, play with Open3D vizualization in place over point clouds use tutorial/PointcloudDemo.py script
+
+
  
 ### IMPORTANT NOTES: 
  - The output segmentation labels and colors are in CARLA space.
