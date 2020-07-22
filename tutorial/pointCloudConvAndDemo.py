@@ -106,7 +106,7 @@ if True:
     # basePath = "C:/Users/Ciprian/OneDrive - University of Bucharest, Faculty of Mathematics and Computer Science/IMAR_Work/New folder"
     basePath = "/home/ciprian/pres/WAYMOOUTPUT/18311996733670569136_5880_000_5900_000"
 
-    DEMO_LOW_QUALITY = False
+    DEMO_LOW_QUALITY = True
     # A low quality voxelized example...
     if DEMO_LOW_QUALITY == True:
         Waymo_X = os.path.join(basePath, "combined_carla_moving_no_res_conv.ply") #
@@ -119,7 +119,7 @@ if True:
         scale = 1.0
 
     NEEDS_CONVERSION = False
-    NEEDS_REMOVE_OUTLIER = True
+    NEEDS_REMOVE_OUTLIER = False
 
     if NEEDS_CONVERSION: # Do conversion ?
         Waymo_X_orig = os.path.join(basePath, "combined_carla_moving_no_res.ply")
